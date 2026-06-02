@@ -1,0 +1,7 @@
+id,require_grads,x1,x2,op_type,op_attr,x1_shape,x1_hidden,x2_shape,x2_hidden,grad_of,extra_attr
+visual,N,,,T,,"Batch/dp, NumPatches/tp, Dmodel/1",1,,,,
+text,N,,,T,,"Batch/dp, TextSeq/tp, Dmodel/1",1,,,,
+tokens,N,visual,text,C,1,"Batch/dp, NumPatches/tp, Dmodel/1",1,"Batch/dp, TextSeq/tp, Dmodel/1",1,,
+dtokens,N,,,T,,"Batch/dp, (NumPatches+TextSeq)/tp, Dmodel/1",1,,,tokens,
+dvisual,N,dtokens,,SLICE,"1:NumPatches/tp","Batch/dp, (NumPatches+TextSeq)/tp, Dmodel/1",1,,,visual,
+dtext,N,dtokens,,SLICE,"1:TextSeq/tp","Batch/dp, (NumPatches+TextSeq)/tp, Dmodel/1",1,,,text,

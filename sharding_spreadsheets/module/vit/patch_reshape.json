@@ -1,0 +1,18 @@
+{
+  "symbols": [
+    "Batch",
+    "VisionInChannels",
+    "VisionImageSize",
+    "VisionPatchDim",
+    "NumPatches",
+    "dp"
+  ],
+  "in_tensors": [
+    "image",
+    "dpatches"
+  ],
+  "out_tensors": [
+    "patches",
+    "dimage"
+  ]
+}

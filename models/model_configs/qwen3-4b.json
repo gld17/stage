@@ -1,0 +1,22 @@
+{
+  "model_name": "qwen3-4b",
+  "model_type": "dense",
+  "display_name": "Qwen3-4B",
+  "vocab_size": 151936,
+  "hidden_size": 2560,
+  "intermediate_size": 10240,
+  "num_hidden_layers": 36,
+  "num_attention_heads": 40,
+  "num_key_value_heads": 8,
+  "experts": 1,
+  "kexperts": 1,
+  "vision_hidden_size": 1,
+  "vision_num_hidden_layers": 1,
+  "vision_num_attention_heads": 1,
+  "vision_intermediate_size": 1,
+  "vision_image_size": 1,
+  "vision_patch_size": 1,
+  "vision_in_channels": 1,
+  "vision_projection_size": 1,
+  "notes": ["Qwen3-4B dense model, vision fields are dummy for dense models"]
+}

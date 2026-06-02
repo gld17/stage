@@ -1,0 +1,22 @@
+{
+  "model_name": "qwen2_5_vl_32b",
+  "model_type": "vlm",
+  "display_name": "Qwen2.5-VL-32B",
+  "vocab_size": 152064,
+  "hidden_size": 5120,
+  "intermediate_size": 27648,
+  "num_hidden_layers": 64,
+  "num_attention_heads": 40,
+  "num_key_value_heads": 8,
+  "experts": 1,
+  "kexperts": 1,
+  "vision_hidden_size": 1664,
+  "vision_num_hidden_layers": 32,
+  "vision_num_attention_heads": 16,
+  "vision_intermediate_size": 6656,
+  "vision_image_size": 448,
+  "vision_patch_size": 14,
+  "vision_in_channels": 3,
+  "vision_projection_size": 5120,
+  "notes": ["Qwen2.5-VL (32B). Vision encoder params are estimates; verify against HF config.json"]
+}

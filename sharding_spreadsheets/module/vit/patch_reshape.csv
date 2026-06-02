@@ -1,0 +1,5 @@
+id,require_grads,x1,x2,op_type,op_attr,x1_shape,x1_hidden,x2_shape,x2_hidden,grad_of,extra_attr
+image,N,,,T,,"Batch/dp, VisionInChannels, VisionImageSize, VisionImageSize",1,,,,
+patches,N,image,,R,,"Batch/dp, VisionInChannels, VisionImageSize, VisionImageSize",1,"Batch/dp, NumPatches, VisionPatchDim",1,,
+dpatches,N,,,T,,"Batch/dp, NumPatches, VisionPatchDim",1,,,patches,
+dimage,N,dpatches,,R,,"Batch/dp, NumPatches, VisionPatchDim",1,"Batch/dp, VisionInChannels, VisionImageSize, VisionImageSize",1,image,
