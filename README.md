@@ -17,19 +17,19 @@ The Symbolic Tensor Graph is a generator for [Chakra Execution Trace (ET)](https
 
 ## Installation
 
-To set up the environment and install the required dependencies, follow these steps:
+Install dependencies via pip (or uv):
 
 ```bash
-# Clone the repository
-git clone git@github.com:astra-sim/symbolic_tensor_graph.git
+# Using pip
+pip install -r requirements.txt
 
-# Navigate to the project directory
-cd symbolic_tensor_graph
+# Or using uv
+uv pip install -r requirements.txt
+```
 
-# Install dependencies via conda
-conda create -n <env_name>
-conda activate <env_name>
-conda install numpy sympy python-graphviz protobuf pandas -c conda-forge
+For conda users, the same packages are available on conda-forge:
+```bash
+conda install numpy sympy python-graphviz protobuf pandas tqdm networkx -c conda-forge
 ```
 
 ## Usage
@@ -83,12 +83,25 @@ comm_group.json  workload.0.et  workload.1.et  workload.2.et  workload.3.et
     | --experts              | int     | No       | 8          | Number of experts in MoE.                                                   |
     | --kexperts             | int     | No       | 2          | Number of selected experts per token.                                       |
     | --chakra_schema_version| str     | No       | "v0.0.4"   | Chakra schema version.                                                      |
-    | --model_type           | str     | No       | "dense"    | One of `dense`, `llama`, `gpt`, `moe`, `qwen_vl`, `debug` (see below).        |
+    | --model_type           | str     | No       | "dense"    | One of `dense`, `llama`, `gpt`, `moe`, `debug` (see [Supported Model Types](#supported-model-types)). |
     | --mixed_precision      | bool    | No       | False      | Whether to use mixed precision.                                             |
     | --print_gpu_vram       | bool    | No       | False      | Whether to print per-GPU VRAM footprint.                                    |
     | --include_backward   | flag    | No       | (off)      | Pass the flag to include backward + weight update in ET; omit for forward-only (inference). |
     
     \*: We do not specify number of total NPUs, which will be infered from the parallel degree as: ```num_NPUs=DP*TP*PP*SP```
+
+## Supported Model Types
+
+| Model Type | `--model_type` | Description | Supported Parallelism |
+|-----------|----------------|-------------|----------------------|
+| Dense (LLaMA) | `llama` / `dense` | Standard Transformer with TP+SP or TP-only | DP, TP, SP, PP, FSDP |
+| GPT | `gpt` | GPT variant with configurable TP/SP | DP, TP, SP, PP, FSDP |
+| MoE | `moe` | Mixture-of-Experts with expert parallelism | DP, TP, SP, PP, EP, FSDP |
+| Debug | `debug` | Minimal debug configuration | — |
+
+**Training vs Inference:** Pass `--include_backward` to generate backward pass + weight update nodes (training). Omit for forward-only (inference).
+
+**TP vs TP+SP:** Use `--tpsp true` (default) for Tensor Parallel + Sequence Parallel; `--tpsp false` for TP only. LLaMA (`dense`) uses `--tpsp` automatically; GPT allows explicit toggling.
 
 ## Example Commands
 
@@ -121,15 +134,15 @@ The schema version used determines compatibility with different tools and reposi
 
 After generating traces with `main.py`, use the bundled helper to inspect Chakra ET (v0.0.4 stream: `GlobalMetadata` + `Node` messages, same encoding as `Chakra004Backend`).
 
-Run from this directory (`stage/`) so `symbolic_tensor_graph` is importable. The script needs **`protobuf`** (same as STG). If your interpreter does not have it yet:
+Run from this directory (`stage/`) so `symbolic_tensor_graph` is importable. The script needs the same dependencies as `main.py` (see `requirements.txt`). If your interpreter does not have them yet:
 
 ```bash
-# uv workflow (recommended if you use uv)
-uv venv .venv && source .venv/bin/activate   # Windows: .venv\Scripts\activate
-uv pip install -r requirements-et-tools.txt
-```
+# Using pip
+pip install -r requirements.txt
 
-Or use the same Conda env as in [Installation](#installation) and ensure `protobuf` is installed (e.g. `conda install protobuf -c conda-forge`).
+# Or using uv
+uv pip install -r requirements.txt
+```
 
 Use `--jsonizer` and/or `--visualizer` together (omit both to run both). Outputs default to `results/<et_stem>.{json,graphml}` (same directory as `main.py --output_dir results`).
 
