@@ -92,11 +92,28 @@ class TensorGraph:
 
     @classmethod
     def load_tensor_graph(cls, csv_filename, json_filename=None):
+        # Fallback to base/ directory if file not found in strategy directory
+        if not os.path.exists(csv_filename):
+            base_path = os.path.join(
+                os.path.dirname(csv_filename), "..", "base", os.path.basename(csv_filename)
+            )
+            base_path = os.path.normpath(base_path)
+            if os.path.exists(base_path):
+                csv_filename = base_path
+        
         tensors = Tensor.parse_records(csv_filename)
         graph = cls(tensors)
         if json_filename is None:
             assert csv_filename.endswith("csv")
             json_filename = csv_filename[:-3] + "json"
+            # Fallback for json file too
+            if not os.path.exists(json_filename):
+                base_json = os.path.join(
+                    os.path.dirname(json_filename), "..", "base", os.path.basename(json_filename)
+                )
+                base_json = os.path.normpath(base_json)
+                if os.path.exists(base_json):
+                    json_filename = base_json
             # return graph
 
         tensor_id_map_tensor = graph.get_tensor_id_map_tensor()
