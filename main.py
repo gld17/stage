@@ -1,6 +1,5 @@
 import os
 import argparse
-import sys
 import sympy as sp
 from symbolic_tensor_graph.graph.graph import TensorGraph
 from symbolic_tensor_graph.graph.grad_updater import (
@@ -31,11 +30,6 @@ def str_to_bool(v):
     return v.lower() in ("true", "t", "1", "yes", "y")
 
 
-def _cli_arg_provided(arg_name):
-    option = f"--{arg_name}"
-    return any(arg == option or arg.startswith(f"{option}=") for arg in sys.argv[1:])
-
-
 def _create_pipeline_tensor_map_mix_precision(
     _tensors, _temporal_parallel_dims, _symbol_map_value, num_stacks
 ):
@@ -57,17 +51,6 @@ def _create_pipeline_tensor_map_mix_precision(
 
     for tensor in _tensors:
         tid = tensor.id
-        if tid.startswith(
-            (
-                "patch_reshape.",
-                "patch_embedding.",
-                "vision_encoder.",
-                "vision_projection.",
-                "vlm_concat.",
-            )
-        ):
-            _tensor_map[tid] = {parallel_dim: 0}
-            continue
         # ------------------------------------------------------------------
         # 1) Transformer block tensors
         # ------------------------------------------------------------------
@@ -117,17 +100,6 @@ def _create_pipeline_tensor_map(
     # num_stacks_each_stage.append(num_stacks_each_stage[-1]+100000)
 
     for tensor in _tensors:
-        if tensor.id.startswith(
-            (
-                "patch_reshape.",
-                "patch_embedding.",
-                "vision_encoder.",
-                "vision_projection.",
-                "vlm_concat.",
-            )
-        ):
-            _tensor_map[tensor.id] = {parallel_dim: 0}
-            continue
         if tensor.id == "transformer.18._sharded_weight@1":
             pass
         found = False
@@ -154,15 +126,7 @@ def _create_pipeline_tensor_map(
 
 
 def main():
-    parser = argparse.ArgumentParser(
-        description=(
-            "Build STAGE execution traces. Use --model_name <name> to load model "
-            "structure parameters from models/model_configs/ automatically; "
-            "explicit CLI values for --dvocal, --dmodel, --dff, --num_stacks, "
-            "--head, --kvhead, --experts, and --kexperts take precedence over "
-            "config file values."
-        )
-    )
+    parser = argparse.ArgumentParser()
     parser.add_argument(
         "--output_dir", type=str, help="dir where stores output traces", required=True
     )
@@ -216,33 +180,10 @@ def main():
     parser.add_argument("--num_stacks", type=int, default=80, required=False)
     parser.add_argument("--experts", type=int, default=8, required=False)
     parser.add_argument("--kexperts", type=int, default=2, required=False)
-    parser.add_argument("--model_name", type=str, default=None, required=False)
-    parser.add_argument("--vision_hidden_size", type=int, default=None, required=False)
-    parser.add_argument(
-        "--vision_num_hidden_layers", type=int, default=None, required=False
-    )
-    parser.add_argument(
-        "--vision_num_attention_heads", type=int, default=None, required=False
-    )
-    parser.add_argument(
-        "--vision_intermediate_size", type=int, default=None, required=False
-    )
-    parser.add_argument("--vision_image_size", type=int, default=None, required=False)
-    parser.add_argument("--vision_patch_size", type=int, default=None, required=False)
-    parser.add_argument("--vision_in_channels", type=int, default=None, required=False)
-    parser.add_argument(
-        "--vision_projection_size", type=int, default=None, required=False
-    )
     parser.add_argument(
         "--chakra_schema_version", type=str, default="v0.0.4", required=False
     )
-    parser.add_argument(
-        "--model_type",
-        type=str,
-        default="dense",
-        required=False,
-        choices=["dense", "gpt", "moe", "debug", "vlm"],
-    )
+    parser.add_argument("--model_type", type=str, default="dense", required=False)
     parser.add_argument(
         "--mixed_precision", type=str_to_bool, default=False, required=False
     )
@@ -263,64 +204,6 @@ def main():
     )
 
     args = parser.parse_args()
-    config = {}
-    if args.model_name is not None:
-        from models.model_configs import load_model_config
-
-        config = load_model_config(args.model_name)
-        config_arg_map = {
-            "vocab_size": "dvocal",
-            "hidden_size": "dmodel",
-            "intermediate_size": "dff",
-            "num_hidden_layers": "num_stacks",
-            "num_attention_heads": "head",
-            "num_key_value_heads": "kvhead",
-            "experts": "experts",
-            "kexperts": "kexperts",
-            "vision_hidden_size": "vision_hidden_size",
-            "vision_num_hidden_layers": "vision_num_hidden_layers",
-            "vision_num_attention_heads": "vision_num_attention_heads",
-            "vision_intermediate_size": "vision_intermediate_size",
-            "vision_image_size": "vision_image_size",
-            "vision_patch_size": "vision_patch_size",
-            "vision_in_channels": "vision_in_channels",
-            "vision_projection_size": "vision_projection_size",
-        }
-        for config_key, arg_name in config_arg_map.items():
-            if config_key in config and not _cli_arg_provided(arg_name):
-                setattr(args, arg_name, config[config_key])
-        if config.get("model_type") == "vlm" and not _cli_arg_provided("model_type"):
-            args.model_type = "vlm"
-
-    if args.model_type == "vlm" and args.model_name is None:
-        print(
-            "[Warning] --model_type vlm was used without --model_name; "
-            "building a minimal 2-layer VLM. Use --model_name for full configs."
-        )
-        if not _cli_arg_provided("num_stacks"):
-            args.num_stacks = 2
-        if args.vision_num_hidden_layers is None:
-            args.vision_num_hidden_layers = 2
-
-    if args.vision_hidden_size is None:
-        args.vision_hidden_size = args.dmodel
-    if args.vision_num_hidden_layers is None:
-        args.vision_num_hidden_layers = 1
-    if args.vision_num_attention_heads is None:
-        args.vision_num_attention_heads = args.head
-    if args.vision_intermediate_size is None:
-        args.vision_intermediate_size = args.dff
-    if args.vision_image_size is None:
-        args.vision_image_size = 448
-    if args.vision_patch_size is None:
-        args.vision_patch_size = 14
-    if args.vision_in_channels is None:
-        args.vision_in_channels = 3
-    if args.vision_projection_size is None:
-        args.vision_projection_size = args.dmodel
-
-    if args.vision_image_size % args.vision_patch_size != 0:
-        raise ValueError("vision_image_size must be divisible by vision_patch_size")
 
     os.makedirs(args.output_dir, exist_ok=True)
     if not "%d" in args.output_name:
@@ -340,26 +223,11 @@ def main():
         KExperts,
         Dvocal,
         MicroBatch,
-        TextSeq,
-        NumPatches,
-        VisionHidden,
-        VisionIntermediate,
-        VisionHead,
-        VisionImageSize,
-        VisionPatchSize,
-        VisionInChannels,
-        VisionPatchDim,
-        TotalSeq,
     ) = sp.symbols(
-        "Din Dout Dmodel Dff Batch Seq Head KVHead Experts KExperts Dvocal "
-        "MicroBatch TextSeq NumPatches VisionHidden VisionIntermediate "
-        "VisionHead VisionImageSize VisionPatchSize VisionInChannels VisionPatchDim "
-        "TotalSeq"
+        "Din Dout Dmodel Dff Batch Seq Head KVHead Experts KExperts Dvocal MicroBatch"
     )
-    num_patches_per_side = args.vision_image_size // args.vision_patch_size
-    num_patches = num_patches_per_side * num_patches_per_side
-    text_seq = args.seq
-    total_seq = args.seq + num_patches if args.model_type == "vlm" else args.seq
+    if args.micro_batch == -1:
+        args.micro_batch = args.batch
     symbol_map_value = {
         Dvocal: args.dvocal,
         Dmodel: args.dmodel,
@@ -367,22 +235,10 @@ def main():
         Batch: args.batch,
         MicroBatch: args.micro_batch,
         Seq: args.seq,
-        TotalSeq: total_seq,
-        TextSeq: text_seq,
-        NumPatches: num_patches,
         Head: args.head,
         KVHead: args.kvhead,
         Experts: args.experts,
         KExperts: args.kexperts,
-        VisionHidden: args.vision_hidden_size,
-        VisionIntermediate: args.vision_intermediate_size,
-        VisionHead: args.vision_num_attention_heads,
-        VisionImageSize: args.vision_image_size,
-        VisionPatchSize: args.vision_patch_size,
-        VisionInChannels: args.vision_in_channels,
-        VisionPatchDim: args.vision_patch_size
-        * args.vision_patch_size
-        * args.vision_in_channels,
         dp: args.dp,
         tp: args.tp,
         pp: args.pp,
@@ -520,41 +376,6 @@ def main():
                 distributed_chakra_graph_moe, args.batch // args.micro_batch
             )
         distributed_chakra_graph_moe.readout(generated_filename, backend=ReadoutBackend)
-
-    elif args.model_type == "vlm":
-        from models.llama_model import llama as build_text_backbone
-        from models.vlm import vlm as build_vlm
-
-        def transformer_vlm_fn(
-            num_layers,
-            embedding_path=None,
-            regenerate=False,
-            tpsp=True,
-            include_backward=True,
-        ):
-            return build_vlm(
-                text_num_layers=num_layers,
-                vision_num_layers=args.vision_num_hidden_layers,
-                symbol_map_value=symbol_map_value,
-                text_backbone_fn=build_text_backbone,
-                regenerate=regenerate,
-                tpsp=tpsp,
-                include_backward=include_backward,
-            )
-
-        _build_and_distribute_dense_model(
-            transformer_vlm_fn,
-            num_stacks,
-            symbol_map_value,
-            temporal_parallel_dims,
-            dp,
-            tp,
-            spp,
-            ep,
-            args,
-            generated_filename,
-            header="[VLM] ",
-        )
 
     elif args.model_type == "debug":
         transformer_moe = TensorGraph.load_tensor_graph(
