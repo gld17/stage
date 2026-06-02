@@ -121,7 +121,7 @@ def _create_pipeline_tensor_map(
         elif "loss" in tensor.id:
             _tensor_map[tensor.id] = {parallel_dim: (num_stacks - 1) % range_}
         else:
-            assert False, tensor.name
+            raise ValueError(f"Unrecognized tensor id for pipeline mapping: {tensor.name}")
     return _tensor_map
 
 
@@ -254,192 +254,43 @@ def main():
         symbol_map_value[fsdp] = 1
         symbol_map_value["fsdp"] = 1
 
-    hook = 1
     global mixprecision
     if args.mixed_precision:
         mixprecision = True
 
     if args.model_type == "llama" or args.model_type == "dense":
         if mixprecision:
-            from models.llama_model import llama as transformer_dense
+            from models.llama_model import llama as transformer_dense_fn
         else:
-            from models.gpt_model import gpt as transformer_dense
-
-        print("Assembling dense model")
-        transformer_dense = transformer_dense(
+            from models.gpt_model import gpt as transformer_dense_fn
+        _build_and_distribute_dense_model(
+            transformer_dense_fn,
             num_stacks,
-            regenerate=True,
-            tpsp=args.tpsp,
-            include_backward=args.include_backward,
-        )
-        if os.environ.get("STAGE_MICROBATCH_OPTIMIZE", "0") == "0":
-            transformer_dense = MicroBatchReplicator.apply(
-                transformer_dense, symbol_map_value
-            )
-        else:
-            print("[Warning] MICROBATCH OPTIMIZE sometimes generate incorrect graphs, use with caution!")
-            transformer_dense = ReplicateGraph.apply(
-                transformer_dense,
-                inplace=True,
-                old_symbol_map_new_symbol={"Batch": "MicroBatch"},
-            )
-
-        if args.weight_sharded:
-            transformer_dense = ReplicateGraph.apply(
-                transformer_dense,
-                inplace=True,
-                old_symbol_map_new_symbol={"fsdp": "dp"},
-            )
-        else:
-            transformer_dense = ReplicateGraph.apply(
-                transformer_dense, inplace=True, old_symbol_map_new_symbol={"fsdp": 1}
-            )
-
-        # transformer_dense.visualize("dense")
-        # transformer_dense.save_tensor_graph("llama.csv")
-
-        transformer_dense = _apply_training_mode(
-            transformer_dense, args.include_backward
-        )
-        spatial_parallel_dims_dense = [dp, tp, spp]
-
-        symbol_map_value[tp] *= symbol_map_value[ep]
-        # dense model
-        pipeline_tensor_map = _create_pipeline_tensor_map(
-            transformer_dense.tensors,
+            symbol_map_value,
             temporal_parallel_dims,
-            symbol_map_value,
-            num_stacks,
-        )
-
-        print("Dense model: Distributing")
-        distributed_tensor_graph_dense = GraphDistributer.apply(
-            transformer_dense,
-            symbol_map_value,
-            spatial_parallel_dims_dense,
-            temporal_parallel_dims,
-            pipeline_tensor_map,
-        )
-
-        if args.print_gpu_vram:
-            _print_gpu_vram(
-                distributed_tensor_graph_dense,
-                symbol_map_value,
-                mixed_precision=args.mixed_precision,
-                header="[Dense] ",
-            )
-
-        print("Dense model: Converting Chakra")
-        comm_group_file = args.output_name.replace(".%d", "").replace(".et", ".json")
-        distributed_chakra_graph_dense = BundledConvertChakra.apply(
-            distributed_tensor_graph_dense,
-            symbol_map_value,
-            os.path.join(args.output_dir, comm_group_file),
-            mixed_precision=args.mixed_precision,
-        )
-
-        from symbolic_tensor_graph.chakra.backends.chakra_00_4_backend import (
-            Chakra004Backend as ReadoutBackend,
-        )
-
-        if os.environ.get("STAGE_MICROBATCH_OPTIMIZE", "0") != "0":
-            distributed_chakra_graph_dense = MicroBatchReplicatorPostProcess.apply(
-                distributed_chakra_graph_dense, args.batch // args.micro_batch
-            )
-
-        print("Dense model: reading out")
-        distributed_chakra_graph_dense.readout(
-            generated_filename, backend=ReadoutBackend
+            dp,
+            tp,
+            spp,
+            ep,
+            args,
+            generated_filename,
+            header="[Dense] ",
         )
     elif args.model_type == "gpt":
-        from models.gpt_model import gpt as transformer_dense
-
-        print("Assembling dense model")
-        transformer_dense = transformer_dense(
+        from models.gpt_model import gpt as transformer_dense_fn
+        _build_and_distribute_dense_model(
+            transformer_dense_fn,
             num_stacks,
-            regenerate=True,
-            tpsp=args.tpsp,
-            include_backward=args.include_backward,
-        )
-        if os.environ.get("STAGE_MICROBATCH_OPTIMIZE", "0") == "0":
-            transformer_dense = MicroBatchReplicator.apply(
-                transformer_dense, symbol_map_value
-            )
-        else:
-            print("[Warning] MICROBATCH OPTIMIZE sometimes generate incorrect graphs, use with caution!")
-            transformer_dense = ReplicateGraph.apply(
-                transformer_dense,
-                inplace=True,
-                old_symbol_map_new_symbol={"Batch": "MicroBatch"},
-            )
-
-        if args.weight_sharded:
-            transformer_dense = ReplicateGraph.apply(
-                transformer_dense,
-                inplace=True,
-                old_symbol_map_new_symbol={"fsdp": "dp"},
-            )
-        else:
-            transformer_dense = ReplicateGraph.apply(
-                transformer_dense, inplace=True, old_symbol_map_new_symbol={"fsdp": 1}
-            )
-
-        # transformer_dense.visualize("dense")
-        # transformer_dense.save_tensor_graph("gpt.csv")
-
-        transformer_dense = _apply_training_mode(
-            transformer_dense, args.include_backward
-        )
-        spatial_parallel_dims_dense = [dp, tp, spp]
-
-        symbol_map_value[tp] *= symbol_map_value[ep]
-        # dense model
-        pipeline_tensor_map = _create_pipeline_tensor_map(
-            transformer_dense.tensors,
+            symbol_map_value,
             temporal_parallel_dims,
-            symbol_map_value,
-            num_stacks,
+            dp,
+            tp,
+            spp,
+            ep,
+            args,
+            generated_filename,
+            header="[GPT] ",
         )
-
-        print("Dense model: Distributing")
-        distributed_tensor_graph_dense = GraphDistributer.apply(
-            transformer_dense,
-            symbol_map_value,
-            spatial_parallel_dims_dense,
-            temporal_parallel_dims,
-            pipeline_tensor_map,
-        )
-
-        if args.print_gpu_vram:
-            _print_gpu_vram(
-                distributed_tensor_graph_dense,
-                symbol_map_value,
-                mixed_precision=args.mixed_precision,
-                header="[GPT] ",
-            )
-
-        print("Dense model: Converting Chakra")
-        comm_group_file = args.output_name.replace(".%d", "").replace(".et", ".json")
-        distributed_chakra_graph_dense = BundledConvertChakra.apply(
-            distributed_tensor_graph_dense,
-            symbol_map_value,
-            os.path.join(args.output_dir, comm_group_file),
-            mixed_precision=args.mixed_precision,
-        )
-
-        from symbolic_tensor_graph.chakra.backends.chakra_00_4_backend import (
-            Chakra004Backend as ReadoutBackend,
-        )
-
-        print("Dense model: reading out")
-        if os.environ.get("STAGE_MICROBATCH_OPTIMIZE", "0") != "0":
-            distributed_chakra_graph_dense = MicroBatchReplicatorPostProcess.apply(
-                distributed_chakra_graph_dense, args.batch // args.micro_batch
-            )
-        distributed_chakra_graph_dense.readout(
-            generated_filename, backend=ReadoutBackend
-        )
-
     elif args.model_type == "moe":
         from models.moe_model import transformer as transformer_moe
 
@@ -456,8 +307,7 @@ def main():
                 transformer_moe, symbol_map_value
             )
         else:
-            print("[Warning] MICROBATCH OPTIMIZE sometimes generate incorrect graphs, use with caution!")
-            assert False, "disable for now"
+            raise NotImplementedError("MICROBATCH OPTIMIZE is disabled for MoE")
         transformer_moe = ReplicateGraph.apply(
             transformer_moe,
             inplace=True,
@@ -598,6 +448,105 @@ def main():
                 distributed_chakra_graph_moe, args.batch // args.micro_batch
             )
         distributed_chakra_graph_moe.readout(generated_filename, backend=ReadoutBackend)
+
+
+
+
+def _build_and_distribute_dense_model(
+    transformer_dense_fn,
+    num_stacks,
+    symbol_map_value,
+    temporal_parallel_dims,
+    dp,
+    tp,
+    spp,
+    ep,
+    args,
+    generated_filename,
+    header="[Dense] ",
+):
+    """Build, distribute, convert and readout a dense transformer model."""
+    print("Assembling dense model")
+    transformer_dense = transformer_dense_fn(
+        num_stacks,
+        regenerate=True,
+        tpsp=args.tpsp,
+        include_backward=args.include_backward,
+    )
+    if os.environ.get("STAGE_MICROBATCH_OPTIMIZE", "0") == "0":
+        transformer_dense = MicroBatchReplicator.apply(
+            transformer_dense, symbol_map_value
+        )
+    else:
+        print("[Warning] MICROBATCH OPTIMIZE sometimes generate incorrect graphs, use with caution!")
+        transformer_dense = ReplicateGraph.apply(
+            transformer_dense,
+            inplace=True,
+            old_symbol_map_new_symbol={"Batch": "MicroBatch"},
+        )
+
+    if args.weight_sharded:
+        transformer_dense = ReplicateGraph.apply(
+            transformer_dense,
+            inplace=True,
+            old_symbol_map_new_symbol={"fsdp": "dp"},
+        )
+    else:
+        transformer_dense = ReplicateGraph.apply(
+            transformer_dense, inplace=True, old_symbol_map_new_symbol={"fsdp": 1}
+        )
+
+    transformer_dense = _apply_training_mode(
+        transformer_dense, args.include_backward
+    )
+    spatial_parallel_dims_dense = [dp, tp, spp]
+
+    symbol_map_value[tp] *= symbol_map_value[ep]
+    pipeline_tensor_map = _create_pipeline_tensor_map(
+        transformer_dense.tensors,
+        temporal_parallel_dims,
+        symbol_map_value,
+        num_stacks,
+    )
+
+    print("Dense model: Distributing")
+    distributed_tensor_graph_dense = GraphDistributer.apply(
+        transformer_dense,
+        symbol_map_value,
+        spatial_parallel_dims_dense,
+        temporal_parallel_dims,
+        pipeline_tensor_map,
+    )
+
+    if args.print_gpu_vram:
+        _print_gpu_vram(
+            distributed_tensor_graph_dense,
+            symbol_map_value,
+            mixed_precision=args.mixed_precision,
+            header=header,
+        )
+
+    print("Dense model: Converting Chakra")
+    comm_group_file = args.output_name.replace(".%d", "").replace(".et", ".json")
+    distributed_chakra_graph_dense = BundledConvertChakra.apply(
+        distributed_tensor_graph_dense,
+        symbol_map_value,
+        os.path.join(args.output_dir, comm_group_file),
+        mixed_precision=args.mixed_precision,
+    )
+
+    from symbolic_tensor_graph.chakra.backends.chakra_00_4_backend import (
+        Chakra004Backend as ReadoutBackend,
+    )
+
+    print("Dense model: reading out")
+    if os.environ.get("STAGE_MICROBATCH_OPTIMIZE", "0") != "0":
+        distributed_chakra_graph_dense = MicroBatchReplicatorPostProcess.apply(
+            distributed_chakra_graph_dense, args.batch // args.micro_batch
+        )
+    distributed_chakra_graph_dense.readout(
+        generated_filename, backend=ReadoutBackend
+    )
 
 
 if __name__ == "__main__":

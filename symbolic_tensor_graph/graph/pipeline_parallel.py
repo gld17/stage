@@ -1,3 +1,4 @@
+import warnings
 import sympy as sp
 from ..tensor import Tensor
 from .replicate_graph import ReplicateGraph
@@ -5,7 +6,11 @@ from .connect_graph import ConnectGraph
 from ..ops import Add
 
 
+# DEPRECATED: The following naive_pipeline_* and gpipe_* functions are
+# currently unused (no external references). Kept for potential future use.
+# Consider removing if not needed after further validation.
 def naive_pipeline_emb_separate_n_layer_each_stage(graph, temporal_parallel_dims, symbol_map_value, num_stacks, layer_each_stage=1):
+    warnings.warn("naive_pipeline_emb_separate_n_layer_each_stage is deprecated and unused", DeprecationWarning, stacklevel=2)
     tensors = graph.tensors
     tensor_map = dict()
     assert len(temporal_parallel_dims) == 1
@@ -24,6 +29,7 @@ def naive_pipeline_emb_separate_n_layer_each_stage(graph, temporal_parallel_dims
 
 
 def naive_pipeline_emb_separate_evenly(graph, temporal_parallel_dims, symbol_map_value, num_stacks):
+    warnings.warn("naive_pipeline_emb_separate_evenly is deprecated and unused", DeprecationWarning, stacklevel=2)
     assert len(temporal_parallel_dims) == 1
     parallel_dim = temporal_parallel_dims[0]
     pp_size = symbol_map_value[parallel_dim]
@@ -32,6 +38,7 @@ def naive_pipeline_emb_separate_evenly(graph, temporal_parallel_dims, symbol_map
 
 
 def naive_pipeline_n_layer_each_stage(graph, temporal_parallel_dims, symbol_map_value, num_stacks, layer_each_stage=1):
+    warnings.warn("naive_pipeline_n_layer_each_stage is deprecated and unused", DeprecationWarning, stacklevel=2)
     tensors = graph.tensors
     tensor_map = dict()
     assert len(temporal_parallel_dims) == 1
@@ -49,6 +56,7 @@ def naive_pipeline_n_layer_each_stage(graph, temporal_parallel_dims, symbol_map_
     return graph, tensor_map
 
 def naive_pipeline_evenly(graph, temporal_parallel_dims, symbol_map_value, num_stacks):
+    warnings.warn("naive_pipeline_evenly is deprecated and unused", DeprecationWarning, stacklevel=2)
     assert len(temporal_parallel_dims) == 1
     parallel_dim = temporal_parallel_dims[0]
     pp_size = symbol_map_value[parallel_dim]
@@ -56,6 +64,7 @@ def naive_pipeline_evenly(graph, temporal_parallel_dims, symbol_map_value, num_s
     return naive_pipeline_n_layer_each_stage(graph, temporal_parallel_dims, symbol_map_value, num_stacks, layer_each_stage)
 
 def gpipe_pipeline_prepare(graph, symbol_map_value):
+    warnings.warn("gpipe_pipeline_prepare is deprecated and unused", DeprecationWarning, stacklevel=2)
     micro_batch_sym = sp.symbols("MicroBatch")
     batch_sym = sp.symbols("Batch")
     assert micro_batch_sym in symbol_map_value
@@ -125,6 +134,7 @@ def gpipe_pipeline_prepare(graph, symbol_map_value):
 
 
 def gpipe_n_layer_each_stage(graph, temporal_parallel_dims, symbol_map_value, num_stacks, layer_each_stage=1):
+    warnings.warn("gpipe_n_layer_each_stage is deprecated and unused", DeprecationWarning, stacklevel=2)
     graph = gpipe_pipeline_prepare(graph, symbol_map_value)
     tensors = graph.tensors
     tensor_map = dict()
@@ -144,6 +154,7 @@ def gpipe_n_layer_each_stage(graph, temporal_parallel_dims, symbol_map_value, nu
 
 
 def gpipe_evenly(graph, temporal_parallel_dims, symbol_map_value, num_stacks):
+    warnings.warn("gpipe_evenly is deprecated and unused", DeprecationWarning, stacklevel=2)
     assert len(temporal_parallel_dims) == 1
     parallel_dim = temporal_parallel_dims[0]
     pp_size = symbol_map_value[parallel_dim]
