@@ -38,11 +38,17 @@ class ReplicateGraph:
         if not inplace:
             graph = copy.deepcopy(graph)
         assert isinstance(graph, TensorGraph)
-        for from_, to_ in old_symbol_map_new_symbol.items():
+        items = list(old_symbol_map_new_symbol.items())
+        items.sort(key=lambda item: len(str(item[0])), reverse=True)
+        parsed_items = []
+        for from_, to_ in items:
             if isinstance(from_, str):
                 from_ = sp.parse_expr(from_)
             if isinstance(to_, str):
                 to_ = sp.parse_expr(to_)
+            parsed_items.append((from_, to_))
+
+        for from_, to_ in parsed_items:
             for tensor in graph.tensors:
                 if not tensor.x1_shape is None:
                     for i, dim in enumerate(tensor.x1_shape):
@@ -56,9 +62,18 @@ class ReplicateGraph:
                 if not tensor.x2_hidden is None:
                     for i, dim in enumerate(tensor.x2_hidden):
                         tensor.x2_hidden[i] = dim.replace(from_, to_)
-                if tensor.op_type in {Slice.type_name, BroadcastReduce.type_name, Customized.type_name}:
+        for tensor in graph.tensors:
+            if tensor.op_type in {Slice.type_name, BroadcastReduce.type_name, Customized.type_name}:
+                placeholders = []
+                for i, (attr_from, attr_to) in enumerate(parsed_items):
+                    placeholder = f"__STAGE_SYMBOL_REPLACE_{i}__"
                     tensor.op_attr = tensor.op_attr.replace(
-                        f"{str(from_)}", f"({str(to_)})"
+                        f"{str(attr_from)}", placeholder
+                    )
+                    placeholders.append((placeholder, attr_to))
+                for placeholder, attr_to in placeholders:
+                    tensor.op_attr = tensor.op_attr.replace(
+                        placeholder, f"({str(attr_to)})"
                     )
         return graph
 

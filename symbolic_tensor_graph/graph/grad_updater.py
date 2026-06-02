@@ -237,11 +237,13 @@ class MicroBatchReplicator:
         for tensor in graph.tensors:
             if tensor.op_type == PlaceHolder.type_name and tensor.require_grads:
                 weights.append(tensor)
-                grads.append(tensor._grad)
+                if tensor._grad is not None:
+                    grads.append(tensor._grad)
             else:
                 others.append(tensor)
         for grad in grads:
-            others.remove(grad)
+            if grad in others:
+                others.remove(grad)
         return weights, grads, others
 
     @classmethod

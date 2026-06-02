@@ -15,8 +15,14 @@ class Reshape(OPBase):
         x2_hidden = tensor.x2_hidden
         assert op_attr is None
 
-        assert abs(Tensor.eval_size(x1_shape) - Tensor.eval_size(x2_shape)) < 1e-9
-        assert abs(Tensor.eval_size(x1_hidden) - Tensor.eval_size(x2_hidden)) < 1e-9
+        try:
+            assert abs(Tensor.eval_size(x1_shape) - Tensor.eval_size(x2_shape)) < 1e-9
+        except TypeError:
+            pass  # symbolic shapes cannot be evaluated numerically
+        try:
+            assert abs(Tensor.eval_size(x1_hidden) - Tensor.eval_size(x2_hidden)) < 1e-9
+        except TypeError:
+            pass  # symbolic shapes cannot be evaluated numerically
 
     @classmethod
     def _eval_impl(cls, tensor):

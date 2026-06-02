@@ -1,5 +1,6 @@
 import os
 import argparse
+import sys
 import sympy as sp
 from symbolic_tensor_graph.graph.graph import TensorGraph
 from symbolic_tensor_graph.graph.grad_updater import (
@@ -67,6 +68,8 @@ def _create_pipeline_tensor_map_mix_precision(
         # ------------------------------------------------------------------
         if "in_emb" in tid:
             _tensor_map[tid] = {parallel_dim: 0}
+        elif "vision_encoder" in tid or "vision_projection" in tid or "vlm_concat" in tid:
+            _tensor_map[tid] = {parallel_dim: 0}
         elif "out_emb" in tid or "loss" in tid:
             _tensor_map[tid] = {parallel_dim: (range_ - 1)}
         else:
@@ -116,6 +119,12 @@ def _create_pipeline_tensor_map(
             pass
         elif "in_emb" in tensor.id:
             _tensor_map[tensor.id] = {parallel_dim: 0}
+        elif (
+            "vision_encoder" in tensor.id
+            or "vision_projection" in tensor.id
+            or "vlm_concat" in tensor.id
+        ):
+            _tensor_map[tensor.id] = {parallel_dim: 0}
         elif "out_emb" in tensor.id:
             _tensor_map[tensor.id] = {parallel_dim: (num_stacks - 1) % range_}
         elif "loss" in tensor.id:
@@ -126,7 +135,15 @@ def _create_pipeline_tensor_map(
 
 
 def main():
-    parser = argparse.ArgumentParser()
+    parser = argparse.ArgumentParser(
+        description=(
+            "Stage STG generator. Use --model_name <name> to load model "
+            "structure parameters from models/model_configs/. Explicit CLI "
+            "values override config values; --dvocal, --dmodel, --dff, "
+            "--num_stacks, --head, --kvhead, --experts, and --kexperts are "
+            "optional when --model_name is provided."
+        )
+    )
     parser.add_argument(
         "--output_dir", type=str, help="dir where stores output traces", required=True
     )
@@ -183,7 +200,22 @@ def main():
     parser.add_argument(
         "--chakra_schema_version", type=str, default="v0.0.4", required=False
     )
-    parser.add_argument("--model_type", type=str, default="dense", required=False)
+    parser.add_argument("--model_name", type=str, default=None, required=False)
+    parser.add_argument(
+        "--model_type",
+        type=str,
+        default="dense",
+        required=False,
+        choices=["dense", "gpt", "moe", "debug", "vlm"],
+    )
+    parser.add_argument("--vision_hidden_size", type=int, default=1, required=False)
+    parser.add_argument("--vision_num_hidden_layers", type=int, default=1, required=False)
+    parser.add_argument("--vision_num_attention_heads", type=int, default=1, required=False)
+    parser.add_argument("--vision_intermediate_size", type=int, default=1, required=False)
+    parser.add_argument("--vision_image_size", type=int, default=1, required=False)
+    parser.add_argument("--vision_patch_size", type=int, default=1, required=False)
+    parser.add_argument("--vision_in_channels", type=int, default=1, required=False)
+    parser.add_argument("--vision_projection_size", type=int, default=1, required=False)
     parser.add_argument(
         "--mixed_precision", type=str_to_bool, default=False, required=False
     )
@@ -204,6 +236,56 @@ def main():
     )
 
     args = parser.parse_args()
+    explicit_args = {
+        token.split("=", 1)[0]
+        for token in sys.argv[1:]
+        if token.startswith("--")
+    }
+    config = None
+    if args.model_name:
+        from models.model_configs import load_model_config
+
+        config = load_model_config(args.model_name)
+        config_to_arg = {
+            "vocab_size": "dvocal",
+            "hidden_size": "dmodel",
+            "intermediate_size": "dff",
+            "num_hidden_layers": "num_stacks",
+            "num_attention_heads": "head",
+            "num_key_value_heads": "kvhead",
+            "experts": "experts",
+            "kexperts": "kexperts",
+            "vision_hidden_size": "vision_hidden_size",
+            "vision_num_hidden_layers": "vision_num_hidden_layers",
+            "vision_num_attention_heads": "vision_num_attention_heads",
+            "vision_intermediate_size": "vision_intermediate_size",
+            "vision_image_size": "vision_image_size",
+            "vision_patch_size": "vision_patch_size",
+            "vision_in_channels": "vision_in_channels",
+            "vision_projection_size": "vision_projection_size",
+        }
+        for config_key, arg_name in config_to_arg.items():
+            if config_key in config and f"--{arg_name}" not in explicit_args:
+                setattr(args, arg_name, config[config_key])
+        if (
+            config.get("model_type") == "vlm"
+            and "--model_type" not in explicit_args
+        ):
+            args.model_type = "vlm"
+    elif args.model_type == "vlm":
+        print(
+            "[Warning] --model_type vlm used without --model_name; "
+            "using a minimal 2-layer text + 2-layer ViT configuration."
+        )
+        args.num_stacks = 2
+        args.vision_num_hidden_layers = 2
+        args.vision_hidden_size = args.dmodel
+        args.vision_num_attention_heads = args.head
+        args.vision_intermediate_size = args.dff
+        args.vision_image_size = 14
+        args.vision_patch_size = 14
+        args.vision_in_channels = 3
+        args.vision_projection_size = args.dmodel
 
     os.makedirs(args.output_dir, exist_ok=True)
     if not "%d" in args.output_name:
@@ -223,11 +305,26 @@ def main():
         KExperts,
         Dvocal,
         MicroBatch,
+        TotalSeq,
+        NumPatches,
+        VisionHidden,
+        VisionIntermediate,
+        VisionHead,
+        VisionImageSize,
+        VisionPatchSize,
+        VisionInChannels,
+        VisionPatchDim,
     ) = sp.symbols(
-        "Din Dout Dmodel Dff Batch Seq Head KVHead Experts KExperts Dvocal MicroBatch"
+        "Din Dout Dmodel Dff Batch Seq Head KVHead Experts KExperts Dvocal "
+        "MicroBatch TotalSeq NumPatches VisionHidden VisionIntermediate "
+        "VisionHead VisionImageSize VisionPatchSize VisionInChannels VisionPatchDim"
     )
     if args.micro_batch == -1:
         args.micro_batch = args.batch
+    num_patches = (args.vision_image_size // args.vision_patch_size) ** 2
+    vision_patch_dim = (
+        args.vision_patch_size * args.vision_patch_size * args.vision_in_channels
+    )
     symbol_map_value = {
         Dvocal: args.dvocal,
         Dmodel: args.dmodel,
@@ -239,6 +336,15 @@ def main():
         KVHead: args.kvhead,
         Experts: args.experts,
         KExperts: args.kexperts,
+        TotalSeq: args.seq + num_patches,
+        NumPatches: num_patches,
+        VisionHidden: args.vision_hidden_size,
+        VisionIntermediate: args.vision_intermediate_size,
+        VisionHead: args.vision_num_attention_heads,
+        VisionImageSize: args.vision_image_size,
+        VisionPatchSize: args.vision_patch_size,
+        VisionInChannels: args.vision_in_channels,
+        VisionPatchDim: vision_patch_dim,
         dp: args.dp,
         tp: args.tp,
         pp: args.pp,
@@ -290,6 +396,29 @@ def main():
             args,
             generated_filename,
             header="[GPT] ",
+        )
+    elif args.model_type == "vlm":
+        from models.vlm import vlm as build_vlm
+
+        _build_and_distribute_dense_model(
+            lambda num_layers, regenerate=True, tpsp=True, include_backward=True: build_vlm(
+                text_num_layers=num_layers,
+                vision_num_layers=args.vision_num_hidden_layers,
+                symbol_map_value=symbol_map_value,
+                regenerate=regenerate,
+                tpsp=tpsp,
+                include_backward=include_backward,
+            ),
+            num_stacks,
+            symbol_map_value,
+            temporal_parallel_dims,
+            dp,
+            tp,
+            spp,
+            ep,
+            args,
+            generated_filename,
+            header="[VLM] ",
         )
     elif args.model_type == "moe":
         from models.moe_model import transformer as transformer_moe
