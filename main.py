@@ -20,7 +20,7 @@ def _apply_training_mode(graph, include_backward):
     """Apply GradUpdater (training) or strip to forward-only inference graph."""
     if include_backward:
         return GradUpdater.apply(graph, inplace=True)
-    from models.stage1.graph_mode import strip_to_forward_only
+    from models.graph_mode import strip_to_forward_only
 
     return strip_to_forward_only(graph, inplace=True)
 
@@ -261,9 +261,9 @@ def main():
 
     if args.model_type == "llama" or args.model_type == "dense":
         if mixprecision:
-            from models.stage1.llama_model import llama as transformer_dense
+            from models.llama_model import llama as transformer_dense
         else:
-            from models.stage1.gpt_model import gpt as transformer_dense
+            from models.gpt_model import gpt as transformer_dense
 
         print("Assembling dense model")
         transformer_dense = transformer_dense(
@@ -352,7 +352,7 @@ def main():
             generated_filename, backend=ReadoutBackend
         )
     elif args.model_type == "gpt":
-        from models.stage1.gpt_model import gpt as transformer_dense
+        from models.gpt_model import gpt as transformer_dense
 
         print("Assembling dense model")
         transformer_dense = transformer_dense(
@@ -441,7 +441,7 @@ def main():
         )
 
     elif args.model_type == "moe":
-        from models.stage1.moe_model import transformer as transformer_moe
+        from models.moe_model import transformer as transformer_moe
 
         assert args.tpsp
         print("Assembling moe model")
