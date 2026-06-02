@@ -1,0 +1,25 @@
+**/__pycache__
+**/*.pyc
+**/*.pdf
+**/processed_graphs
+**/visualization
+**/*.et
+**/*.eg
+**/run_file
+**/run_file*
+**/offload_strategy
+# IDE and caches
+**/*.log
+**/offload/*.csv
+experiment
+generated
+sharding_spreadsheets/.cache/
+
+# IDE and caches
+.vscode/
+results/.cache/
+*.egg-info/
+.pytest_cache/
+
+# Hermes plans
+.hermes/

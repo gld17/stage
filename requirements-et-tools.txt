@@ -1,0 +1,2 @@
+# For chakra_et_tools.py (JSON via MessageToDict; same stack as STG protobuf ET)
+protobuf>=4.21.0
