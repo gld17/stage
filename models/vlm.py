@@ -126,6 +126,32 @@ def vlm(
     Pipeline:
       image patches -> ViT -> Projection -> Concat(visual_tokens, text_tokens) -> Text Backbone
     """
+    vision_graph, text_graph, links = vlm_subgraphs(
+        text_num_layers=text_num_layers,
+        vision_num_layers=vision_num_layers,
+        symbol_map_value=symbol_map_value,
+        text_backbone_fn=text_backbone_fn,
+        regenerate=regenerate,
+        tpsp=tpsp,
+        include_backward=include_backward,
+    )
+    return ConnectGraph.apply([vision_graph, text_graph], links)
+
+
+def vlm_subgraphs(
+    text_num_layers,
+    vision_num_layers,
+    symbol_map_value,
+    text_backbone_fn=None,
+    regenerate=False,
+    tpsp=True,
+    include_backward=True,
+):
+    """Build VLM as vision and text subgraphs for independent strategies.
+
+    Returns:
+        (vision_graph, text_graph, links)
+    """
     # Build ViT and projection
     vit = ReplicateGraph.apply(
         vision_encoder(
@@ -170,34 +196,33 @@ def vlm(
         _concat_tokens(include_backward=include_backward), "vlm_concat.%s"
     )
 
-    # Connect ViT + Projection + in_emb + concat + text_decoders
-    links = {
+    vision_links = {
         f"vision_encoder.vit.{vision_num_layers - 1}.ffn_res.y": "vision_projection.x",
         "vision_projection.y": "vlm_concat.visual",
-        "in_emb.y": "vlm_concat.text",
     }
-    graph = ConnectGraph.apply([vit, projection, in_emb, concat, text_decoders], links)
-    _set_identical_input(graph, "transformer.0.input_norm.x@0", "vlm_concat.y@0")
+    vision_graph = ConnectGraph.apply([vit, projection, concat], vision_links)
 
-    # Connect out_emb
-    links2 = {f"transformer.{text_num_layers - 1}.ffn_res.y": "out_emb.x"}
-    graph = ConnectGraph.apply([graph, out_emb], links2)
+    text_links = {f"transformer.{text_num_layers - 1}.ffn_res.y": "out_emb.x"}
+    if include_backward:
+        text_links["out_emb.dx"] = f"transformer.{text_num_layers - 1}.ffn_res.dy"
+    text_graph = ConnectGraph.apply([in_emb, text_decoders, out_emb], text_links)
+
+    links = {
+        "in_emb.y": "vlm_concat.text",
+        "vlm_concat.y": "transformer.0.input_norm.x",
+    }
 
     if include_backward:
-        _set_identical_input(graph, "in_emb.dy@0", "vlm_concat.dtext@0")
-        _set_identical_input(graph, "vlm_concat.dy@0", "transformer.0.input_norm.dx@0")
-
-        links2_bw = {
-            "out_emb.dx": f"transformer.{text_num_layers - 1}.ffn_res.dy"
-        }
-        graph = ConnectGraph.apply([graph], links2_bw)
-
         loss = ReplicateGraph.apply(
             TensorGraph.load_tensor_graph("./sharding_spreadsheets/module/tpsp/loss.csv"),
             "loss.%s",
             old_symbol_map_new_symbol={"Seq": "TotalSeq"},
         )
-        links_loss = {"out_emb.y": "loss.y", "loss.dy": "out_emb.dy"}
-        graph = ConnectGraph.apply([graph, loss], links_loss)
+        text_graph = ConnectGraph.apply(
+            [text_graph, loss],
+            {"out_emb.y": "loss.y", "loss.dy": "out_emb.dy"},
+        )
+        links["vlm_concat.dtext"] = "in_emb.dy"
+        links["transformer.0.input_norm.dx"] = "vlm_concat.dy"
 
-    return graph
+    return vision_graph, text_graph, links

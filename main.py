@@ -9,6 +9,7 @@ from symbolic_tensor_graph.graph.grad_updater import (
     MicroBatchReplicatorPostProcess,
 )
 from symbolic_tensor_graph.graph.replicate_graph import ReplicateGraph
+from symbolic_tensor_graph.graph.connect_graph import ConnectGraph
 from symbolic_tensor_graph.graph.graph_distributer import GraphDistributer
 from symbolic_tensor_graph.graph.convert_chakra import BundledConvertChakra
 import re
@@ -134,6 +135,69 @@ def _create_pipeline_tensor_map(
     return _tensor_map
 
 
+def _stage_for_layer(layer_idx, num_layers, num_stages, stage_offset=0):
+    layers_each_stage = [num_layers // num_stages] * num_stages
+    for i in range(num_layers % num_stages):
+        layers_each_stage[i] += 1
+    upper = 0
+    for stage, count in enumerate(layers_each_stage):
+        upper += count
+        if layer_idx < upper:
+            return stage_offset + stage
+    return stage_offset + num_stages - 1
+
+
+def _create_vlm_pipeline_tensor_map(
+    _tensors,
+    _temporal_parallel_dims,
+    _symbol_map_value,
+    vision_num_layers,
+    text_num_layers,
+    vision_pp,
+    text_pp,
+):
+    _tensor_map = dict()
+    assert len(_temporal_parallel_dims) == 1
+    parallel_dim = _temporal_parallel_dims[0]
+    vision_pp = max(1, int(vision_pp))
+    text_pp = max(1, int(text_pp))
+
+    for tensor in _tensors:
+        tid = tensor.id
+        m = re.search(r"vision_encoder\.vit\.(\d+)", tid)
+        if m:
+            stage = _stage_for_layer(
+                int(m.group(1)), vision_num_layers, vision_pp, stage_offset=0
+            )
+            _tensor_map[tid] = {parallel_dim: stage}
+            continue
+
+        m = re.search(r"transformer\.(\d+)", tid)
+        if m:
+            stage = _stage_for_layer(
+                int(m.group(1)),
+                text_num_layers,
+                text_pp,
+                stage_offset=vision_pp,
+            )
+            _tensor_map[tid] = {parallel_dim: stage}
+            continue
+
+        if (
+            "vision_encoder" in tid
+            or "vision_projection" in tid
+            or "vlm_concat" in tid
+        ):
+            _tensor_map[tid] = {parallel_dim: 0}
+        elif "in_emb" in tid:
+            _tensor_map[tid] = {parallel_dim: vision_pp}
+        elif "out_emb" in tid or "loss" in tid:
+            _tensor_map[tid] = {parallel_dim: vision_pp + text_pp - 1}
+        else:
+            raise ValueError(f"Unrecognized tensor id for VLM pipeline mapping: {tid}")
+    return _tensor_map
+
+
 def main():
     parser = argparse.ArgumentParser(
         description=(
@@ -165,6 +229,14 @@ def main():
     parser.add_argument(
         "--pp", type=int, default=1, help="pipeline parallel degree", required=False
     )
+    parser.add_argument("--vision_dp", type=int, default=None, required=False)
+    parser.add_argument("--vision_tp", type=int, default=None, required=False)
+    parser.add_argument("--vision_pp", type=int, default=None, required=False)
+    parser.add_argument("--vision_ep", type=int, default=None, required=False)
+    parser.add_argument("--text_dp", type=int, default=None, required=False)
+    parser.add_argument("--text_tp", type=int, default=None, required=False)
+    parser.add_argument("--text_pp", type=int, default=None, required=False)
+    parser.add_argument("--text_ep", type=int, default=None, required=False)
     parser.add_argument(
         "--weight_sharded",
         type=str_to_bool,
@@ -206,7 +278,7 @@ def main():
         type=str,
         default="dense",
         required=False,
-        choices=["dense", "gpt", "moe", "debug", "vlm"],
+        choices=["dense", "gpt", "moe", "debug", "vlm", "vlm_moe"],
     )
     parser.add_argument("--vision_hidden_size", type=int, default=1, required=False)
     parser.add_argument("--vision_num_hidden_layers", type=int, default=1, required=False)
@@ -272,9 +344,9 @@ def main():
             and "--model_type" not in explicit_args
         ):
             args.model_type = "vlm"
-    elif args.model_type == "vlm":
+    elif args.model_type in {"vlm", "vlm_moe"}:
         print(
-            "[Warning] --model_type vlm used without --model_name; "
+            f"[Warning] --model_type {args.model_type} used without --model_name; "
             "using a minimal 2-layer text + 2-layer ViT configuration."
         )
         args.num_stacks = 2
@@ -286,6 +358,15 @@ def main():
         args.vision_patch_size = 14
         args.vision_in_channels = 3
         args.vision_projection_size = args.dmodel
+
+    args.vision_dp = args.vision_dp or args.dp
+    args.vision_tp = args.vision_tp or args.tp
+    args.vision_pp = args.vision_pp or args.pp
+    args.vision_ep = args.vision_ep or args.ep
+    args.text_dp = args.text_dp or args.dp
+    args.text_tp = args.text_tp or args.tp
+    args.text_pp = args.text_pp or args.pp
+    args.text_ep = args.text_ep or args.ep
 
     os.makedirs(args.output_dir, exist_ok=True)
     if not "%d" in args.output_name:
@@ -398,27 +479,45 @@ def main():
             header="[GPT] ",
         )
     elif args.model_type == "vlm":
-        from models.vlm import vlm as build_vlm
+        from models.vlm import vlm_subgraphs as build_vlm_subgraphs
 
-        _build_and_distribute_dense_model(
-            lambda num_layers, regenerate=True, tpsp=True, include_backward=True: build_vlm(
-                text_num_layers=num_layers,
-                vision_num_layers=args.vision_num_hidden_layers,
-                symbol_map_value=symbol_map_value,
-                regenerate=regenerate,
-                tpsp=tpsp,
-                include_backward=include_backward,
-            ),
-            num_stacks,
+        vision_graph, text_graph, links = build_vlm_subgraphs(
+            text_num_layers=num_stacks,
+            vision_num_layers=args.vision_num_hidden_layers,
+            symbol_map_value=symbol_map_value,
+            regenerate=True,
+            tpsp=args.tpsp,
+            include_backward=args.include_backward,
+        )
+        _build_and_distribute_vlm_model(
+            vision_graph,
+            text_graph,
+            links,
             symbol_map_value,
-            temporal_parallel_dims,
-            dp,
-            tp,
-            spp,
-            ep,
             args,
             generated_filename,
             header="[VLM] ",
+        )
+    elif args.model_type == "vlm_moe":
+        from models.vlm_moe import vlm_moe_subgraphs
+
+        assert args.tpsp
+        vision_graph, text_graph, links = vlm_moe_subgraphs(
+            text_num_layers=num_stacks,
+            vision_num_layers=args.vision_num_hidden_layers,
+            symbol_map_value=symbol_map_value,
+            regenerate=True,
+            tpsp=args.tpsp,
+            include_backward=args.include_backward,
+        )
+        _build_and_distribute_vlm_model(
+            vision_graph,
+            text_graph,
+            links,
+            symbol_map_value,
+            args,
+            generated_filename,
+            header="[VLM-MoE] ",
         )
     elif args.model_type == "moe":
         from models.moe_model import transformer as transformer_moe
@@ -579,6 +678,102 @@ def main():
         distributed_chakra_graph_moe.readout(generated_filename, backend=ReadoutBackend)
 
 
+
+
+def _build_and_distribute_vlm_model(
+    vision_graph,
+    text_graph,
+    links,
+    symbol_map_value,
+    args,
+    generated_filename,
+    header="[VLM-Decoupled] ",
+):
+    print(f"{header}Assembling decoupled model")
+    # Step 1: Connect subgraphs FIRST, then apply global transforms.
+    # MicroBatchReplicator renames tensor IDs (adds mb0./mb1. prefix),
+    # so ConnectGraph must run before it to resolve cross-subgraph links.
+    full_graph = ConnectGraph.apply([vision_graph, text_graph], links)
+
+    if os.environ.get("STAGE_MICROBATCH_OPTIMIZE", "0") == "0":
+        full_graph = MicroBatchReplicator.apply(full_graph, symbol_map_value)
+    else:
+        print("[Warning] MICROBATCH OPTIMIZE sometimes generate incorrect graphs, use with caution!")
+        full_graph = ReplicateGraph.apply(
+            full_graph,
+            inplace=True,
+            old_symbol_map_new_symbol={"Batch": "MicroBatch"},
+        )
+
+    if args.weight_sharded:
+        full_graph = ReplicateGraph.apply(
+            full_graph,
+            inplace=True,
+            old_symbol_map_new_symbol={"fsdp": "dp"},
+        )
+    else:
+        full_graph = ReplicateGraph.apply(
+            full_graph, inplace=True, old_symbol_map_new_symbol={"fsdp": 1}
+        )
+
+    full_graph = _apply_training_mode(full_graph, args.include_backward)
+
+    dp, tp, pp, spp, ep = sp.symbols("dp tp pp cp ep")
+    temporal_parallel_dims = [pp]
+    total_pp = max(1, int(args.vision_pp)) + max(1, int(args.text_pp))
+    symbol_map_value[pp] = total_pp
+    pipeline_tensor_map = _create_vlm_pipeline_tensor_map(
+        full_graph.tensors,
+        temporal_parallel_dims,
+        symbol_map_value,
+        args.vision_num_hidden_layers,
+        args.num_stacks,
+        args.vision_pp,
+        args.text_pp,
+    )
+
+    spatial_parallel_dims = [dp, tp, spp]
+    if args.model_type == "vlm_moe":
+        spatial_parallel_dims.append(ep)
+    else:
+        symbol_map_value[tp] *= symbol_map_value.get(ep, 1)
+
+    print(f"{header}Distributing")
+    distributed_tensor_graph = GraphDistributer.apply(
+        full_graph,
+        symbol_map_value,
+        spatial_parallel_dims,
+        temporal_parallel_dims,
+        pipeline_tensor_map,
+    )
+
+    if args.print_gpu_vram:
+        _print_gpu_vram(
+            distributed_tensor_graph,
+            symbol_map_value,
+            mixed_precision=args.mixed_precision,
+            header=header,
+        )
+
+    print(f"{header}Converting Chakra")
+    comm_group_file = args.output_name.replace(".%d", "").replace(".et", ".json")
+    distributed_chakra_graph = BundledConvertChakra.apply(
+        distributed_tensor_graph,
+        symbol_map_value,
+        os.path.join(args.output_dir, comm_group_file),
+        mixed_precision=args.mixed_precision,
+    )
+
+    from symbolic_tensor_graph.chakra.backends.chakra_00_4_backend import (
+        Chakra004Backend as ReadoutBackend,
+    )
+
+    print(f"{header}reading out")
+    if os.environ.get("STAGE_MICROBATCH_OPTIMIZE", "0") != "0":
+        distributed_chakra_graph = MicroBatchReplicatorPostProcess.apply(
+            distributed_chakra_graph, args.batch // args.micro_batch
+        )
+    distributed_chakra_graph.readout(generated_filename, backend=ReadoutBackend)
 
 
 def _build_and_distribute_dense_model(
