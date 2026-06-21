@@ -1,7 +1,0 @@
-id,x1,x2,op_type,op_attr,x1_shape,x1_hidden,x2_shape,x2_hidden,extra_attr
-q,,,T,,"Batch/dp, Seq/cp, Dmodel/Head, Head/tp",1,,,
-k,,,T,,"Batch/dp, Seq/cp, Dmodel/Head, KVHead/tp",1,,,
-v,,,T,,"Batch/dp, Seq/cp, Dmodel/Head, KVHead/tp",1,,,
-k1,k,,I,,"Batch/dp, Seq, Dmodel/Head, KVHead/tp",1,,,
-v1,v,,I,,"Batch/dp, Seq, Dmodel/Head, KVHead/tp",1,,,
-qkv,q,,CUSTOM,Batch/dp*Seq/cp*Dmodel/Head*Head/tp*3,"Batch/dp, Seq/cp, Dmodel/Head, Head/tp",1,"Batch/dp, Seq/cp, Dmodel/Head, Head/tp",1,"{""data_deps"": [""k1"", ""v1""]}"

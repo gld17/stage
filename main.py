@@ -1,5 +1,6 @@
 import os
 import argparse
+import json
 import sys
 import sympy as sp
 from symbolic_tensor_graph.graph.graph import TensorGraph
@@ -8,6 +9,7 @@ from symbolic_tensor_graph.graph.connect_graph import ConnectGraph
 from symbolic_tensor_graph.graph.graph_distributer import GraphDistributer
 from symbolic_tensor_graph.graph.convert_chakra import BundledConvertChakra
 import re
+from symbolic_tensor_graph.topology import PhysicalTopology, validate_physical_topology
 from symbolic_tensor_graph.vram_counting import _print_gpu_vram
 
 mixprecision = False
@@ -277,7 +279,22 @@ def main():
         required=False,
         help="Whether to print per-GPU VRAM footprint (total / params / acts / grads) in GiB",
     )
+    parser.add_argument(
+        "--physical-topology",
+        type=str,
+        default=None,
+        help="Path to physical_topology.json (optional). If not provided, uses identity placement with full connectivity.",
+    )
     args = parser.parse_args()
+    if args.physical_topology:
+        with open(args.physical_topology) as f:
+            topo_data = json.load(f)
+        validate_physical_topology(topo_data)
+        physical_topology = PhysicalTopology(**topo_data)
+        print(f"[FlexET] Loaded physical topology: {physical_topology.num_npus} NPUs")
+    else:
+        physical_topology = None  # identity placement, full connectivity
+
     explicit_args = {
         token.split("=", 1)[0]
         for token in sys.argv[1:]
