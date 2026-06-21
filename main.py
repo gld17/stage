@@ -616,9 +616,6 @@ def _build_and_distribute_vlm_model(
     header="[VLM-Decoupled] ",
 ):
     print(f"{header}Assembling decoupled model")
-    # Step 1: Connect subgraphs FIRST, then apply global transforms.
-    # MicroBatchReplicator renames tensor IDs (adds mb0./mb1. prefix),
-    # so ConnectGraph must run before it to resolve cross-subgraph links.
     full_graph = ConnectGraph.apply([vision_graph, text_graph], links)
     full_graph = ReplicateGraph.apply(
         full_graph, inplace=True, old_symbol_map_new_symbol={"fsdp": 1}

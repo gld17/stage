@@ -3,9 +3,6 @@
 
 # Symbolic Tensor Graph (STG) Generator
 
-**Author:** Changhai Man @ [SynergyLab](https://synergy.ece.gatech.edu/)    
-**Contact:** cman8@gatech.edu
-
 ## Overview
 
 The Symbolic Tensor Graph is a generator for [Chakra Execution Trace (ET)](https://github.com/mlcommons/chakra) files. This tool is designed to generate synthetic workload traces for use in parallel strategy exploration without gathering data from a real system or implementing actual workload codes. It supports various parallelization strategies like Data Parallelism (DP), Tensor Parallelism (TP), Pipeline Parallelism (PP) and Sequence Parallelism (SP).
@@ -46,8 +43,7 @@ This will show all available options and their descriptions. Example of running 
 python main.py --output_dir generated/ \
                --output_name workload.%d.et \
                --comm_group_file comm_group.json \
-               --dp 2 --tp 2 --pp 2 \
-               --weight_sharded 0 
+               --dp 2 --tp 2 --pp 2
 ```
 
 ### Example Output:
@@ -68,7 +64,6 @@ comm_group.json  workload.0.et  workload.1.et  workload.2.et  workload.3.et
     | --sp                   | int     | No       | 1          | Sequence parallel degree.                                                   |
     | --ep                   | int     | No       | 1          | Expert parallel degree.                                                     |
     | --pp                   | int     | No       | 1          | Pipeline parallel degree.                                                   |
-    | --weight_sharded       | bool    | No       | False      | Whether weights are sharded.                                                |
     | --activation_recompute | bool    | No       | False      | Whether to recompute activations.                                           |
     | --tpsp                 | bool    | No       | True       | Use tensor parallel + sequence parallel or tensor parallel only.            |
     | --dvocal               | int     | No       | 32000      | Vocabulary size.                                                            |
@@ -86,7 +81,6 @@ comm_group.json  workload.0.et  workload.1.et  workload.2.et  workload.3.et
     | --model_type           | str     | No       | "dense"    | One of `dense`, `llama`, `gpt`, `moe`, `debug` (see [Supported Model Types](#supported-model-types)). |
     | --mixed_precision      | bool    | No       | False      | Whether to use mixed precision.                                             |
     | --print_gpu_vram       | bool    | No       | False      | Whether to print per-GPU VRAM footprint.                                    |
-    | --include_backward   | flag    | No       | (off)      | Pass the flag to include backward + weight update in ET; omit for forward-only (inference). |
     
     \*: We do not specify number of total NPUs, which will be infered from the parallel degree as: ```num_NPUs=DP*TP*PP*SP```
 
@@ -94,30 +88,23 @@ comm_group.json  workload.0.et  workload.1.et  workload.2.et  workload.3.et
 
 | Model Type | `--model_type` | Description | Supported Parallelism |
 |-----------|----------------|-------------|----------------------|
-| Dense (LLaMA) | `llama` / `dense` | Standard Transformer with TP+SP or TP-only | DP, TP, SP, PP, FSDP |
-| GPT | `gpt` | GPT variant with configurable TP/SP | DP, TP, SP, PP, FSDP |
-| MoE | `moe` | Mixture-of-Experts with expert parallelism | DP, TP, SP, PP, EP, FSDP |
+| Dense (LLaMA) | `llama` / `dense` | Standard Transformer with TP+SP or TP-only | DP, TP, SP, PP |
+| GPT | `gpt` | GPT variant with configurable TP/SP | DP, TP, SP, PP |
+| MoE | `moe` | Mixture-of-Experts with expert parallelism | DP, TP, SP, PP, EP |
 | Debug | `debug` | Minimal debug configuration | — |
-
-**Training vs Inference:** Pass `--include_backward` to generate backward pass + weight update nodes (training). Omit for forward-only (inference).
 
 **TP vs TP+SP:** Use `--tpsp true` (default) for Tensor Parallel + Sequence Parallel; `--tpsp false` for TP only. LLaMA (`dense`) uses `--tpsp` automatically; GPT allows explicit toggling.
 
 ## Example Commands
 
-- **Generate with DP=8, TP=4, PP=4, no FSDP:**
+- **Generate with DP=8, TP=4, PP=4:**
   ```bash
-  python main.py --output_dir generated/ --output_name workload_1.%d.et --comm_group_file comm_group_1.json --dp 8 --tp 4 --pp 4 --sp 1 --weight_sharded 0 --chakra_schema_version v0.0.4
+  python main.py --output_dir generated/ --output_name workload_1.%d.et --comm_group_file comm_group_1.json --dp 8 --tp 4 --pp 4 --sp 1 --chakra_schema_version v0.0.4
   ```
 
-- **Generate with DP=64, TP=1, PP=1, FSDP:**
+- **Generate with DP=4, TP=4, PP=2, SP=2, output in JSON format:**
   ```bash
-  python main.py --output_dir generated/ --output_name workload_2.%d.et --comm_group_file comm_group_2.json --dp 64 --tp 1 --pp 1 --sp 1 --weight_sharded 1 --chakra_schema_version v0.0.4
-  ```
-
-- **Generate with DP=4, TP=4, PP=2, SP=2, FSDP, output in JSON format:**
-  ```bash
-  python main.py --output_dir generated/ --output_name workload_3.%d.json --comm_group_file comm_group_3.json --dp 4 --tp 4 --pp 2 --sp 2 --weight_sharded 1 --chakra_schema_version json
+  python main.py --output_dir generated/ --output_name workload_2.%d.json --comm_group_file comm_group_2.json --dp 4 --tp 4 --pp 2 --sp 2 --chakra_schema_version json
   ```
 
 ## Tool workflow
