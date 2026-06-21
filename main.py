@@ -10,6 +10,14 @@ from symbolic_tensor_graph.graph.graph_distributer import GraphDistributer
 from symbolic_tensor_graph.graph.convert_chakra import BundledConvertChakra
 import re
 from symbolic_tensor_graph.topology import PhysicalTopology, validate_physical_topology
+from symbolic_tensor_graph.placement import (
+    PlacementEngine,
+    ValidationEngine,
+    write_placement_json,
+    write_feasibility_report,
+    readable_rank_to_role,
+    generate_readable_ranks,
+)
 from symbolic_tensor_graph.vram_counting import _print_gpu_vram
 
 mixprecision = False
@@ -18,6 +26,71 @@ mixprecision = False
 def str_to_bool(v):
     # Convert "true" to True and "false" to False
     return v.lower() in ("true", "t", "1", "yes", "y")
+
+
+def _find_and_apply_placement(
+    bundled_graph, symbol_map_value, dp, tp, pp, spp, ep,
+    physical_topology, args, output_dir
+):
+    """Run Placement+Validation loop, write placement.json, return physical_id mapping."""
+    dim_names = (dp, tp, pp, spp, ep)
+    placement_engine = PlacementEngine(
+        symbol_map_value[dp],
+        symbol_map_value[tp],
+        symbol_map_value[pp],
+        symbol_map_value[spp],
+        symbol_map_value[ep],
+        physical_topology=physical_topology,
+        dim_names=dim_names,
+    )
+
+    placement = placement_engine.find_placement(max_retries=args.max_placement_retries)
+
+    if placement is None:
+        validator = ValidationEngine(physical_topology)
+        identity_placement = {}
+        readable_ranks = generate_readable_ranks(
+            symbol_map_value[dp], symbol_map_value[tp], symbol_map_value[pp],
+            symbol_map_value[spp], symbol_map_value[ep], dim_names=dim_names
+        )
+        for num_rank, rr in enumerate(readable_ranks):
+            identity_placement[readable_rank_to_role(rr, dim_names)] = num_rank
+        result = validator.validate(
+            identity_placement,
+            symbol_map_value[dp], symbol_map_value[tp], symbol_map_value[pp],
+            symbol_map_value[spp], symbol_map_value[ep]
+        )
+        write_feasibility_report(
+            result.failed_pp_edges,
+            result.failed_comm_groups,
+            retries=args.max_placement_retries,
+            output_path=os.path.join(output_dir, "feasibility_report.json"),
+        )
+        raise RuntimeError(
+            f"No valid placement found after {args.max_placement_retries} retries. "
+            f"See feasibility_report.json for details. Reason: {result.error_message}"
+        )
+
+    # Write placement.json
+    write_placement_json(
+        placement,
+        symbol_map_value[dp],
+        symbol_map_value[tp],
+        symbol_map_value[pp],
+        symbol_map_value[spp],
+        symbol_map_value[ep],
+        os.path.join(output_dir, "placement.json"),
+    )
+
+    # Build readable_rank -> physical_id mapping for ConvertChakra
+    readable_rank_to_physical_id = {}
+    for readable_rank in bundled_graph.graphs.keys():
+        # Extract available dims from readable_rank (may be fewer than 5)
+        d = {str(k): v for k, v in readable_rank}
+        role = tuple(d.get(str(name), 0) for name in dim_names)
+        readable_rank_to_physical_id[readable_rank] = placement[role]
+
+    return readable_rank_to_physical_id
 
 
 def _create_pipeline_tensor_map_mix_precision(
@@ -285,6 +358,12 @@ def main():
         default=None,
         help="Path to physical_topology.json (optional). If not provided, uses identity placement with full connectivity.",
     )
+    parser.add_argument(
+        "--max-placement-retries",
+        type=int,
+        default=1000,
+        help="Maximum number of placement attempts before fail-fast (default: 1000)",
+    )
     args = parser.parse_args()
     if args.physical_topology:
         with open(args.physical_topology) as f:
@@ -440,8 +519,10 @@ def main():
             temporal_parallel_dims,
             dp,
             tp,
+            pp,
             spp,
             ep,
+            physical_topology,
             args,
             generated_filename,
             header="[Dense] ",
@@ -455,8 +536,10 @@ def main():
             temporal_parallel_dims,
             dp,
             tp,
+            pp,
             spp,
             ep,
+            physical_topology,
             args,
             generated_filename,
             header="[GPT] ",
@@ -477,6 +560,7 @@ def main():
             text_graph,
             links,
             symbol_map_value,
+            physical_topology,
             args,
             generated_filename,
             header="[VLM] ",
@@ -498,6 +582,7 @@ def main():
             text_graph,
             links,
             symbol_map_value,
+            physical_topology,
             args,
             generated_filename,
             header="[VLM-MoE] ",
@@ -542,6 +627,15 @@ def main():
             pipeline_tensor_map,
         )
 
+        readable_rank_to_physical_id_moe = _find_and_apply_placement(
+            distributed_tensor_graph_moe,
+            symbol_map_value,
+            dp, tp, pp, spp, ep,
+            physical_topology,
+            args,
+            args.output_dir,
+        )
+
         if args.print_gpu_vram:
             _print_gpu_vram(
                 distributed_tensor_graph_moe,
@@ -556,6 +650,7 @@ def main():
             distributed_tensor_graph_moe,
             symbol_map_value,
             os.path.join(args.output_dir, comm_group_file),
+            readable_rank_map_number_rank=readable_rank_to_physical_id_moe,
             mixed_precision=args.mixed_precision,
         )
 
@@ -592,10 +687,6 @@ def main():
             "x@0": {pp: 0},
             "w@0": {pp: 0},
             "y@0": {pp: 0},
-            "dy@0": {pp: 0},
-            "dw@0": {pp: 0},
-            "dx@0": {pp: 0},
-            "w@1": {pp: 0},
         }
 
         print("MoE model: Distributing")
@@ -607,12 +698,22 @@ def main():
             pipeline_tensor_map,
         )
 
+        readable_rank_to_physical_id_moe = _find_and_apply_placement(
+            distributed_tensor_graph_moe,
+            symbol_map_value,
+            dp, tp, pp, spp, ep,
+            physical_topology,
+            args,
+            args.output_dir,
+        )
+
         print("MoE model: Converting Chakra")
         comm_group_file = args.output_name.replace(".%d", "").replace(".et", ".json")
         distributed_chakra_graph_moe = BundledConvertChakra.apply(
             distributed_tensor_graph_moe,
             symbol_map_value,
             os.path.join(args.output_dir, comm_group_file),
+            readable_rank_map_number_rank=readable_rank_to_physical_id_moe,
         )
 
         from symbolic_tensor_graph.chakra.backends.chakra_00_4_backend import (
@@ -628,6 +729,7 @@ def _build_and_distribute_vlm_model(
     text_graph,
     links,
     symbol_map_value,
+    physical_topology,
     args,
     generated_filename,
     header="[VLM-Decoupled] ",
@@ -666,6 +768,15 @@ def _build_and_distribute_vlm_model(
         pipeline_tensor_map,
     )
 
+    readable_rank_to_physical_id = _find_and_apply_placement(
+        distributed_tensor_graph,
+        symbol_map_value,
+        dp, tp, pp, spp, ep,
+        physical_topology,
+        args,
+        args.output_dir,
+    )
+
     if args.print_gpu_vram:
         _print_gpu_vram(
             distributed_tensor_graph,
@@ -680,6 +791,7 @@ def _build_and_distribute_vlm_model(
         distributed_tensor_graph,
         symbol_map_value,
         os.path.join(args.output_dir, comm_group_file),
+        readable_rank_map_number_rank=readable_rank_to_physical_id,
         mixed_precision=args.mixed_precision,
     )
 
@@ -698,8 +810,10 @@ def _build_and_distribute_dense_model(
     temporal_parallel_dims,
     dp,
     tp,
+    pp,
     spp,
     ep,
+    physical_topology,
     args,
     generated_filename,
     header="[Dense] ",
@@ -733,6 +847,15 @@ def _build_and_distribute_dense_model(
         pipeline_tensor_map,
     )
 
+    readable_rank_to_physical_id_dense = _find_and_apply_placement(
+        distributed_tensor_graph_dense,
+        symbol_map_value,
+        dp, tp, pp, spp, ep,
+        physical_topology,
+        args,
+        args.output_dir,
+    )
+
     if args.print_gpu_vram:
         _print_gpu_vram(
             distributed_tensor_graph_dense,
@@ -747,6 +870,7 @@ def _build_and_distribute_dense_model(
         distributed_tensor_graph_dense,
         symbol_map_value,
         os.path.join(args.output_dir, comm_group_file),
+        readable_rank_map_number_rank=readable_rank_to_physical_id_dense,
         mixed_precision=args.mixed_precision,
     )
 

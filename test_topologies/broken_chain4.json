@@ -1,0 +1,11 @@
+{
+  "schema_version": "1.0",
+  "num_npus": 4,
+  "bandwidth_gbps": [
+    [0, 10, 0, 0],
+    [10, 0, 0, 0],
+    [0, 0, 0, 10],
+    [0, 0, 10, 0]
+  ],
+  "symmetric": true
+}
