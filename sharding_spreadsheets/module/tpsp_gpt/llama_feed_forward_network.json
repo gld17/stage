@@ -11,13 +11,9 @@
     "in_tensors": [
         "x0",
         "wgate",
-        "wdown",
-        "dxdown"
+        "wdown"
     ],
     "out_tensors": [
-        "xdown",
-        "dwdown",
-        "dwgate",
-        "dx0"
+        "xdown"
     ]
 }

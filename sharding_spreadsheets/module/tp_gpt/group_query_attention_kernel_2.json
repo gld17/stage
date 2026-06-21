@@ -11,13 +11,9 @@
     "in_tensors": [
         "q",
         "k",
-        "v",
-        "dqkv"
+        "v"
     ],
     "out_tensors": [
-        "qkv",
-        "dq",
-        "dk",
-        "dv"
+        "qkv"
     ]
 }

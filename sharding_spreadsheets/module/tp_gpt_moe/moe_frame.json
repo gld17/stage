@@ -11,15 +11,10 @@
     "in_tensors": [
         "x",
         "wrouter",
-        "dxrouted",
-        "yrouted",
-        "dy"
+        "yrouted"
     ],
     "out_tensors": [
         "y",
-        "xrouted",
-        "dwrouter",
-        "dx",
-        "dyrouted"
+        "xrouted"
     ]
 }

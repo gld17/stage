@@ -11,12 +11,9 @@
     ],
     "in_tensors": [
         "x",
-        "w",
-        "dy"
+        "w"
     ],
     "out_tensors": [
-        "y",
-        "dw",
-        "dx"
+        "y"
     ]
 }

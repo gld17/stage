@@ -12,21 +12,12 @@
     "in_tensors": [
         "x",
         "w_sharded",
-        "dv",
-        "dk",
-        "dq",
-
-        "attn",
-        "do"
+        "attn"
     ],
     "out_tensors": [
         "q",
         "k",
         "v",
-        "dx",
-        "dw_sharded",
-
-        "o",
-        "dattn"
+        "o"
     ]
 }

@@ -12,14 +12,9 @@
         "x0",
         "wup",
         "wgate",
-        "wdown",
-        "dxdown"
+        "wdown"
     ],
     "out_tensors": [
-        "xdown",
-        "dwdown",
-        "dwup",
-        "dwgate",
-        "dx0"
+        "xdown"
     ]
 }

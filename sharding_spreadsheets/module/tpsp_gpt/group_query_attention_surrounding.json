@@ -11,23 +11,13 @@
     "in_tensors": [
         "x",
         "wqkv",
-        "dv",
-        "dk",
-        "dq",
-
         "attn",
-        "wo",
-        "do"
+        "wo"
     ],
     "out_tensors": [
         "q",
         "k",
         "v",
-        "dx",
-        "dwqkv",
-
-        "o",
-        "dwo",
-        "dattn"
+        "o"
     ]
 }

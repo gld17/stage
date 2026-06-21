@@ -8,11 +8,9 @@
         "cp"
     ],
     "in_tensors": [
-        "x",
-        "dy"
+        "x"
     ],
     "out_tensors": [
-        "dx",
         "y",
         "x"
     ]
