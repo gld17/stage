@@ -3,11 +3,6 @@ import argparse
 import sys
 import sympy as sp
 from symbolic_tensor_graph.graph.graph import TensorGraph
-from symbolic_tensor_graph.graph.grad_updater import (
-    GradUpdater,
-    MicroBatchReplicator,
-    MicroBatchReplicatorPostProcess,
-)
 from symbolic_tensor_graph.graph.replicate_graph import ReplicateGraph
 from symbolic_tensor_graph.graph.connect_graph import ConnectGraph
 from symbolic_tensor_graph.graph.graph_distributer import GraphDistributer
@@ -16,15 +11,6 @@ import re
 from symbolic_tensor_graph.vram_counting import _print_gpu_vram
 
 mixprecision = False
-
-
-def _apply_training_mode(graph, include_backward):
-    """Apply GradUpdater (training) or strip to forward-only inference graph."""
-    if include_backward:
-        return GradUpdater.apply(graph, inplace=True)
-    from models.graph_mode import strip_to_forward_only
-
-    return strip_to_forward_only(graph, inplace=True)
 
 
 def str_to_bool(v):
@@ -201,7 +187,7 @@ def _create_vlm_pipeline_tensor_map(
 def main():
     parser = argparse.ArgumentParser(
         description=(
-            "Stage STG generator. Use --model_name <name> to load model "
+            "FlexET STG generator. Use --model_name <name> to load model "
             "structure parameters from models/model_configs/. Explicit CLI "
             "values override config values; --dvocal, --dmodel, --dff, "
             "--num_stacks, --head, --kvhead, --experts, and --kexperts are "
@@ -237,13 +223,6 @@ def main():
     parser.add_argument("--text_tp", type=int, default=None, required=False)
     parser.add_argument("--text_pp", type=int, default=None, required=False)
     parser.add_argument("--text_ep", type=int, default=None, required=False)
-    parser.add_argument(
-        "--weight_sharded",
-        type=str_to_bool,
-        help="whether weight sharded",
-        required=False,
-        default=False,
-    )
     parser.add_argument(
         "--activation_recompute",
         type=str_to_bool,
@@ -298,15 +277,6 @@ def main():
         required=False,
         help="Whether to print per-GPU VRAM footprint (total / params / acts / grads) in GiB",
     )
-    parser.add_argument(
-        "--include_backward",
-        action="store_true",
-        help=(
-            "Include backward pass and weight-update nodes in the ET. "
-            "Omit this flag (default) to emit a forward-only (inference) graph."
-        ),
-    )
-
     args = parser.parse_args()
     explicit_args = {
         token.split("=", 1)[0]
@@ -434,12 +404,8 @@ def main():
     }
     num_stacks = args.num_stacks
     temporal_parallel_dims = [pp]
-    if args.weight_sharded:
-        symbol_map_value[fsdp] = args.dp if args.dp != 0 else 1
-        symbol_map_value["fsdp"] = args.dp if args.dp != 0 else 1
-    else:
-        symbol_map_value[fsdp] = 1
-        symbol_map_value["fsdp"] = 1
+    symbol_map_value[fsdp] = 1
+    symbol_map_value["fsdp"] = 1
 
     global mixprecision
     if args.mixed_precision:
@@ -487,7 +453,7 @@ def main():
             symbol_map_value=symbol_map_value,
             regenerate=True,
             tpsp=args.tpsp,
-            include_backward=args.include_backward,
+            
         )
         _build_and_distribute_vlm_model(
             vision_graph,
@@ -508,7 +474,7 @@ def main():
             symbol_map_value=symbol_map_value,
             regenerate=True,
             tpsp=args.tpsp,
-            include_backward=args.include_backward,
+            
         )
         _build_and_distribute_vlm_model(
             vision_graph,
@@ -528,36 +494,18 @@ def main():
             num_stacks,
             symbol_map_value,
             regenerate=True,
-            include_backward=args.include_backward,
+            
         )
-        if os.environ.get("STAGE_MICROBATCH_OPTIMIZE", "0") == "0":
-            transformer_moe = MicroBatchReplicator.apply(
-                transformer_moe, symbol_map_value
-            )
-        else:
-            raise NotImplementedError("MICROBATCH OPTIMIZE is disabled for MoE")
         transformer_moe = ReplicateGraph.apply(
             transformer_moe,
             inplace=True,
             old_symbol_map_new_symbol={"Batch": "MicroBatch"},
         )
-
-        if args.weight_sharded:
-            transformer_moe = ReplicateGraph.apply(
-                transformer_moe,
-                inplace=True,
-                old_symbol_map_new_symbol={"fsdp": "dp"},
-            )
-        else:
-            transformer_moe = ReplicateGraph.apply(
-                transformer_moe, inplace=True, old_symbol_map_new_symbol={"fsdp": 1}
-            )
-
+        transformer_moe = ReplicateGraph.apply(
+            transformer_moe, inplace=True, old_symbol_map_new_symbol={"fsdp": 1}
+        )
         # transformer_moe.visualize("moe")
         # transformer_moe.save_tensor_graph("moe.csv")
-        transformer_moe = _apply_training_mode(
-            transformer_moe, args.include_backward
-        )
         spatial_parallel_dims_moe = [dp, tp, spp, ep]
 
         # moe model
@@ -599,10 +547,6 @@ def main():
         )
 
         print("MoE model: reading out")
-        if os.environ.get("STAGE_MICROBATCH_OPTIMIZE", "0") != "0":
-            distributed_chakra_graph_moe = MicroBatchReplicatorPostProcess.apply(
-                distributed_chakra_graph_moe, args.batch // args.micro_batch
-            )
         distributed_chakra_graph_moe.readout(generated_filename, backend=ReadoutBackend)
 
     elif args.model_type == "debug":
@@ -618,23 +562,11 @@ def main():
                 "Dout": "Dvocal",
             },
         )
-
-        if args.weight_sharded:
-            transformer_moe = ReplicateGraph.apply(
-                transformer_moe,
-                inplace=True,
-                old_symbol_map_new_symbol={"fsdp": "dp"},
-            )
-        else:
-            transformer_moe = ReplicateGraph.apply(
-                transformer_moe, inplace=True, old_symbol_map_new_symbol={"fsdp": 1}
-            )
-
+        transformer_moe = ReplicateGraph.apply(
+            transformer_moe, inplace=True, old_symbol_map_new_symbol={"fsdp": 1}
+        )
         # transformer_moe.visualize("moe")
         # transformer_moe.save_tensor_graph("moe.csv")
-        transformer_moe = _apply_training_mode(
-            transformer_moe, args.include_backward
-        )
         spatial_parallel_dims_moe = [dp, tp, spp, ep]
 
         # moe model
@@ -671,13 +603,7 @@ def main():
         )
 
         print("MoE model: reading out")
-        if os.environ.get("STAGE_MICROBATCH_OPTIMIZE", "0") != "0":
-            distributed_chakra_graph_moe = MicroBatchReplicatorPostProcess.apply(
-                distributed_chakra_graph_moe, args.batch // args.micro_batch
-            )
         distributed_chakra_graph_moe.readout(generated_filename, backend=ReadoutBackend)
-
-
 
 
 def _build_and_distribute_vlm_model(
@@ -694,30 +620,9 @@ def _build_and_distribute_vlm_model(
     # MicroBatchReplicator renames tensor IDs (adds mb0./mb1. prefix),
     # so ConnectGraph must run before it to resolve cross-subgraph links.
     full_graph = ConnectGraph.apply([vision_graph, text_graph], links)
-
-    if os.environ.get("STAGE_MICROBATCH_OPTIMIZE", "0") == "0":
-        full_graph = MicroBatchReplicator.apply(full_graph, symbol_map_value)
-    else:
-        print("[Warning] MICROBATCH OPTIMIZE sometimes generate incorrect graphs, use with caution!")
-        full_graph = ReplicateGraph.apply(
-            full_graph,
-            inplace=True,
-            old_symbol_map_new_symbol={"Batch": "MicroBatch"},
-        )
-
-    if args.weight_sharded:
-        full_graph = ReplicateGraph.apply(
-            full_graph,
-            inplace=True,
-            old_symbol_map_new_symbol={"fsdp": "dp"},
-        )
-    else:
-        full_graph = ReplicateGraph.apply(
-            full_graph, inplace=True, old_symbol_map_new_symbol={"fsdp": 1}
-        )
-
-    full_graph = _apply_training_mode(full_graph, args.include_backward)
-
+    full_graph = ReplicateGraph.apply(
+        full_graph, inplace=True, old_symbol_map_new_symbol={"fsdp": 1}
+    )
     dp, tp, pp, spp, ep = sp.symbols("dp tp pp cp ep")
     temporal_parallel_dims = [pp]
     total_pp = max(1, int(args.vision_pp)) + max(1, int(args.text_pp))
@@ -769,10 +674,6 @@ def _build_and_distribute_vlm_model(
     )
 
     print(f"{header}reading out")
-    if os.environ.get("STAGE_MICROBATCH_OPTIMIZE", "0") != "0":
-        distributed_chakra_graph = MicroBatchReplicatorPostProcess.apply(
-            distributed_chakra_graph, args.batch // args.micro_batch
-        )
     distributed_chakra_graph.readout(generated_filename, backend=ReadoutBackend)
 
 
@@ -795,33 +696,9 @@ def _build_and_distribute_dense_model(
         num_stacks,
         regenerate=True,
         tpsp=args.tpsp,
-        include_backward=args.include_backward,
     )
-    if os.environ.get("STAGE_MICROBATCH_OPTIMIZE", "0") == "0":
-        transformer_dense = MicroBatchReplicator.apply(
-            transformer_dense, symbol_map_value
-        )
-    else:
-        print("[Warning] MICROBATCH OPTIMIZE sometimes generate incorrect graphs, use with caution!")
-        transformer_dense = ReplicateGraph.apply(
-            transformer_dense,
-            inplace=True,
-            old_symbol_map_new_symbol={"Batch": "MicroBatch"},
-        )
-
-    if args.weight_sharded:
-        transformer_dense = ReplicateGraph.apply(
-            transformer_dense,
-            inplace=True,
-            old_symbol_map_new_symbol={"fsdp": "dp"},
-        )
-    else:
-        transformer_dense = ReplicateGraph.apply(
-            transformer_dense, inplace=True, old_symbol_map_new_symbol={"fsdp": 1}
-        )
-
-    transformer_dense = _apply_training_mode(
-        transformer_dense, args.include_backward
+    transformer_dense = ReplicateGraph.apply(
+        transformer_dense, inplace=True, old_symbol_map_new_symbol={"fsdp": 1}
     )
     spatial_parallel_dims_dense = [dp, tp, spp]
 
@@ -864,10 +741,6 @@ def _build_and_distribute_dense_model(
     )
 
     print("Dense model: reading out")
-    if os.environ.get("STAGE_MICROBATCH_OPTIMIZE", "0") != "0":
-        distributed_chakra_graph_dense = MicroBatchReplicatorPostProcess.apply(
-            distributed_chakra_graph_dense, args.batch // args.micro_batch
-        )
     distributed_chakra_graph_dense.readout(
         generated_filename, backend=ReadoutBackend
     )

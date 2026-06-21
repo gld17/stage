@@ -12,7 +12,7 @@ import tqdm
 TMP_DIR_ROOT = "/dev/shm"
 
 
-OPTIMIZED = os.environ.get("STAGE_OPTIMIZED", "1") == "1"
+OPTIMIZED = os.environ.get("FLEXET_OPTIMIZED", "1") == "1"
 
 class TensorGraph:
     def __init__(self, tensors, in_tensors=None, out_tensors=None):
@@ -392,7 +392,7 @@ class HybridGraph(TensorGraph):
     def readout(self, filename, nodes=None, backend=None):
         if nodes is None:
             nodes = self.get_nodes()
-        if int(os.environ.get("STAGE_MERGE_COMMS", 0)) > 0:
+        if int(os.environ.get("FLEXET_MERGE_COMMS", 0)) > 0:
             nodes = self.merge_comms(nodes)
         # nodes = self.comm_add_ctrl_dep(nodes)
         Node.readout_nodes(nodes, filename, backend=backend)

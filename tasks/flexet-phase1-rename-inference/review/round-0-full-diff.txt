@@ -1,0 +1,70 @@
+# Diff Summary (flexet/ not tracked by git; manual audit)
+# === git status --short ===
+# stage/ git repo shows all original files deleted; flexet/ is new untracked directory
+# === working tree diff
+
+## Files Modified (in flexet/)
+
+### main.py
+- Deleted: grad_updater import (GradUpdater, MicroBatchReplicator, MicroBatchReplicatorPostProcess)
+- Deleted: _apply_training_mode() function
+- Deleted: --include_backward CLI argument
+- Deleted: --weight_sharded CLI argument
+- Deleted: all args.weight_sharded branches (fixed fsdp=1)
+- Deleted: all MicroBatchReplicator.apply() calls
+- Deleted: all _apply_training_mode() calls
+- Deleted: all include_backward parameter passing
+- Updated: help text to "FlexET STG generator"
+
+### models/vlm.py
+- Simplified: _tensor() helper (removed require_grads, grad_of params)
+- Deleted: _concat_tokens() include_backward param and backward branch
+- Deleted: vlm() include_backward param
+- Deleted: vlm_subgraphs() include_backward param
+- Deleted: all include_backward passing to vision_encoder, vision_projection, transformer_decoder_block, transformer_decoders
+- Deleted: backward text_links (out_emb.dx)
+- Deleted: loss construction and backward links
+
+### models/vlm_moe.py
+- Deleted: vlm_moe_subgraphs() include_backward param
+- Deleted: all include_backward passing
+- Deleted: backward text_links
+- Deleted: loss construction and backward links
+
+### models/gpt_model.py, llama_model.py, moe_model.py (modified in Round 0)
+- Deleted: include_backward params and backward branches
+
+### models/vision_encoder.py, vlm_connector.py (modified in Round 0)
+- Deleted: include_backward params and backward branches
+
+### symbolic_tensor_graph/tensor.py
+- Deleted: require_grads, grad_of from CSV_HEADER and object attributes
+- Added: is_parameter property
+- Updated: parse and serialize logic for new CSV format
+
+### symbolic_tensor_graph/graph/grad_updater.py
+- Deleted entire file
+
+### symbolic_tensor_graph/vram_counting.py
+- Deleted: grads/opt tracking; simplified to weight + act only
+
+### symbolic_tensor_graph/graph/convert_chakra.py
+- Deleted: optimizer_state_size calculation
+- Deleted: STAGE_CTRL_DEPS comment
+- Updated: require_grads check → is_parameter check
+
+### README.md, PHYSICAL_TOPOLOGY_REQUIREMENTS.md
+- Updated: product name Stage → FlexET
+- Updated: directory references stage/ → flexet/
+
+### Environment variables
+- STAGE_OPTIMIZED → FLEXET_OPTIMIZED
+- STAGE_LEGACY_ATTR → FLEXET_LEGACY_ATTR
+- STAGE_MERGE_COMMS → FLEXET_MERGE_COMMS
+- STAGE_MICROBATCH_OPTIMIZE → deleted
+
+## Files Untouched (deliberately)
+- Pipeline stage terminology (_stage_for_layer, num_stacks_each_stage, etc.)
+- pipeline_parallel.py
+- Chakra backend core logic
+- Model config JSONs

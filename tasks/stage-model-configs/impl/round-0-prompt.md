@@ -5,7 +5,7 @@
 
 ## 项目上下文
 
-- **工作目录**: `/share/guolidong-nfs/SeeSpace/SCSP_v1/stage/`
+- **工作目录**: `/share/guolidong-nfs/SeeSpace/SCSP_v1/flexet/`
 - **项目**: Stage — Symbolic Tensor Graph (STG) Generator for Chakra Execution Traces
 - **环境**: Python 3，无网络连接（离线实现）。系统无 `python` 命令，只有 `python3`。
 - **代理**: 如需 git/GitHub 操作或 HTTP 请求，已配置 `HTTPS_PROXY=http://127.0.0.1:7890`。

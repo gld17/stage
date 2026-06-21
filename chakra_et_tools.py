@@ -2,7 +2,7 @@
 """
 Chakra ET (v0.0.4 stream format) utilities: JSON dump and GraphML graph.
 
-Run from the stage/ directory (same as main.py) so symbolic_tensor_graph is importable.
+Run from the flexet/ directory (same as main.py) so symbolic_tensor_graph is importable.
 """
 
 from __future__ import annotations
@@ -16,12 +16,12 @@ from typing import Any, Dict, List, Optional, Sequence
 from xml.sax.saxutils import escape as _xml_escape
 
 # -----------------------------------------------------------------------------
-# Package path (stage/ contains symbolic_tensor_graph)
+# Package path (flexet/ contains symbolic_tensor_graph)
 # -----------------------------------------------------------------------------
-_STAGE_ROOT = Path(__file__).resolve().parent
-DEFAULT_OUTPUT_DIR = _STAGE_ROOT / "results"
-if str(_STAGE_ROOT) not in sys.path:
-    sys.path.insert(0, str(_STAGE_ROOT))
+_FLEXET_ROOT = Path(__file__).resolve().parent
+DEFAULT_OUTPUT_DIR = _FLEXET_ROOT / "results"
+if str(_FLEXET_ROOT) not in sys.path:
+    sys.path.insert(0, str(_FLEXET_ROOT))
 
 from google.protobuf.json_format import MessageToDict  # noqa: E402
 

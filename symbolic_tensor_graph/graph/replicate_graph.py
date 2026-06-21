@@ -66,7 +66,7 @@ class ReplicateGraph:
             if tensor.op_type in {Slice.type_name, BroadcastReduce.type_name, Customized.type_name}:
                 placeholders = []
                 for i, (attr_from, attr_to) in enumerate(parsed_items):
-                    placeholder = f"__STAGE_SYMBOL_REPLACE_{i}__"
+                    placeholder = f"__FLEXET_SYMBOL_REPLACE_{i}__"
                     tensor.op_attr = tensor.op_attr.replace(
                         f"{str(attr_from)}", placeholder
                     )

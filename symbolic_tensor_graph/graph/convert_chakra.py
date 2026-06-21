@@ -11,7 +11,7 @@ from ..chakra.node import Node
 from ..ops import Shadow, Identical, PlaceHolder, Customized
 
 
-OPTIMIZED = os.environ.get("STAGE_OPTIMIZED", "1") == "1"
+OPTIMIZED = os.environ.get("FLEXET_OPTIMIZED", "1") == "1"
 
 class ConvertChakra:
     with_comm_info = True
@@ -47,18 +47,11 @@ class ConvertChakra:
             # if mixed precision, weight size is 1.5x but activation size is 0.5x
             # this is because weight needs to be stored in both fp16 and fp32, but activation only needs fp16
 
-            if tensor.require_grads:
-                optimizer_state_size = size * 4  # Adam m & v (fp32)
-            else:
-                optimizer_state_size = 0
-
             if mixed_precision and size != 0:
-                if tensor.require_grads:
+                if tensor.is_parameter:
                     size = int(size * 1.5) * 4  # 6 bytes/elem total weight
                 else:
                     size = int(size * 0.5) * 4  # 2 bytes/elem activation / grad
-
-            size += optimizer_state_size
 
         IOInfo = {"name": name, "size": size}
         return IOInfo
@@ -517,8 +510,6 @@ class BundledConvertChakra:
                 tensor_map_nodes.keys(), tensor_map_nodes, symbol_map_value
             )
             cls._clean_empty_comp(graph)
-            # if os.environ.get("STAGE_CTRL_DEPS", "1") == "1":
-                # cls.add_ctrl_deps(graph.tensor_map_nodes)
             return graph
 
         @classmethod
@@ -753,4 +744,3 @@ class BundledConvertChakra:
             )
             tensor_id_map_tensor = tensor_graph.get_tensor_id_map_tensor()
             buckets[asked_readable_rank] = [tensor_map_nodes, tensor_id_map_tensor]
-

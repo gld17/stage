@@ -1,5 +1,3 @@
-﻿id,require_grads,x1,x2,op_type,op_attr,x1_shape,x1_hidden,x2_shape,x2_hidden,grad_of,extra_attr
-x,N,,,T,,"Batch/dp, Seq/sp, Dmodel/tp",1,,,,
-y,N,x,,E,5,"Batch/dp, Seq/sp, Dmodel/tp",1,,,,
-dy,N,,,T,,"Batch/dp, Seq/sp, Dmodel/tp",1,,,y,
-dx,N,dy,,E,5,"Batch/dp, Seq/sp, Dmodel/tp",1,,,x,
+id,x1,x2,op_type,op_attr,x1_shape,x1_hidden,x2_shape,x2_hidden,extra_attr
+x,,,T,,"Batch/dp, Seq/sp, Dmodel/tp",1,,,
+y,x,,E,5,"Batch/dp, Seq/sp, Dmodel/tp",1,,,

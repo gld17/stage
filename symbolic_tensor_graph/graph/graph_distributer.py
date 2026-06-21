@@ -6,7 +6,7 @@ from ..tensor import Tensor
 from ..ops import Shadow
 
 
-OPTIMIZED = os.environ.get("STAGE_OPTIMIZED", "1") == "1"
+OPTIMIZED = os.environ.get("FLEXET_OPTIMIZED", "1") == "1"
 
 class GraphDistributer:
     @classmethod

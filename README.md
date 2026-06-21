@@ -134,7 +134,7 @@ The schema version used determines compatibility with different tools and reposi
 
 After generating traces with `main.py`, use the bundled helper to inspect Chakra ET (v0.0.4 stream: `GlobalMetadata` + `Node` messages, same encoding as `Chakra004Backend`).
 
-Run from this directory (`stage/`) so `symbolic_tensor_graph` is importable. The script needs the same dependencies as `main.py` (see `requirements.txt`). If your interpreter does not have them yet:
+Run from this directory (`flexet/`) so `symbolic_tensor_graph` is importable. The script needs the same dependencies as `main.py` (see `requirements.txt`). If your interpreter does not have them yet:
 
 ```bash
 # Using pip

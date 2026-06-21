@@ -15,7 +15,6 @@ class Tensor:
     _stringfy_expr_cache = dict()
     CSV_HEADER = [
         "id",
-        "require_grads",
         "x1",
         "x2",
         "op_type",
@@ -24,7 +23,6 @@ class Tensor:
         "x1_hidden",
         "x2_shape",
         "x2_hidden",
-        "grad_of",
         "extra_attr",
     ]
 
@@ -33,7 +31,6 @@ class Tensor:
             assert False  # not allow create empty tensor, need to parse from file,
             # here we impl something like private constructor
         self.name = None
-        self.require_grads = None
         self.x1 = None
         self.x2 = None
         self.op_type = None
@@ -42,9 +39,6 @@ class Tensor:
         self.x1_hidden = None
         self.x2_shape = None
         self.x2_hidden = None
-        self.grad_of = None
-        self._grad = None
-
         self.revision = None
 
         self.extra_attr = dict()
@@ -145,6 +139,15 @@ class Tensor:
         return Tensor.stringfy_id(self.name, self.revision)
 
     @property
+    def is_parameter(self):
+        leaf = (self.name or "").split(".")[-1].split("@")[0]
+        return self.op_type == "T" and (
+            leaf == "w"
+            or leaf.startswith("w")
+            or leaf in {"wo", "wqkv", "wgate", "wdown", "w_patch"}
+        )
+
+    @property
     def y_shape(self):
         token = OPHandler.tokenrize(self)
         if not token == self._op_token:
@@ -203,37 +206,27 @@ class Tensor:
         tensor.name = tensor_name
         tensor.revision = tensor_revision
 
-        tensor.require_grads = terms[1].strip() == "Y"
-
-        if not terms[2] is None:
-            x1_name, x1_revision = Tensor.parse_id(terms[2])
+        if not terms[1] is None:
+            x1_name, x1_revision = Tensor.parse_id(terms[1])
             tensor.x1 = Tensor.stringfy_id(x1_name, x1_revision)
         else:
             tensor.x1 = None
 
-        if not terms[3] is None:
-            x2_name, x2_revision = Tensor.parse_id(terms[3])
+        if not terms[2] is None:
+            x2_name, x2_revision = Tensor.parse_id(terms[2])
             tensor.x2 = Tensor.stringfy_id(x2_name, x2_revision)
         else:
             tensor.x2 = None
 
-        tensor.op_type = terms[4]
-        tensor.op_attr = terms[5]
-        if "dwo" in tensor.name:
-            pass
-        tensor.x1_shape = Tensor.parse_shape(terms[6])
-        tensor.x1_hidden = Tensor.parse_shape(terms[7])
-        tensor.x2_shape = Tensor.parse_shape(terms[8])
-        tensor.x2_hidden = Tensor.parse_shape(terms[9])
+        tensor.op_type = terms[3]
+        tensor.op_attr = terms[4]
+        tensor.x1_shape = Tensor.parse_shape(terms[5])
+        tensor.x1_hidden = Tensor.parse_shape(terms[6])
+        tensor.x2_shape = Tensor.parse_shape(terms[7])
+        tensor.x2_hidden = Tensor.parse_shape(terms[8])
 
-        if not terms[10] is None:
-            grad_of_name, grad_of_revision = Tensor.parse_id(terms[10])
-            tensor.grad_of = Tensor.stringfy_id(grad_of_name, grad_of_revision)
-        else:
-            tensor.grad_of = None
-
-        if len(terms) > 11 and (not terms[11] is None):
-            tensor.extra_attr = json.loads(terms[11])
+        if len(terms) > 9 and (not terms[9] is None):
+            tensor.extra_attr = json.loads(terms[9])
         else:
             tensor.extra_attr = dict()
 
@@ -242,7 +235,6 @@ class Tensor:
     def _to_record(tensor):
         terms = list()
         terms.append(tensor.id)
-        terms.append("Y" if tensor.require_grads else "N")
         terms.append(tensor.x1.id if not tensor.x1 is None else "")
         terms.append(tensor.x2.id if not tensor.x2 is None else "")
         terms.append(tensor.op_type)
@@ -267,7 +259,6 @@ class Tensor:
             if not tensor.x2_hidden is None
             else ""
         )
-        terms.append(tensor.grad_of.id if not tensor.grad_of is None else "")
         extra_attr = copy.copy(tensor.extra_attr)
         if "ctrl_deps" in extra_attr.keys():
             ctrl_deps = list()
@@ -306,10 +297,6 @@ class Tensor:
                 tensor.x1 = tensor_id_map_tensor[tensor.x1]
             if tensor.x2 is not None:
                 tensor.x2 = tensor_id_map_tensor[tensor.x2]
-            if tensor.grad_of is not None:
-                assert tensor.grad_of in tensor_id_map_tensor
-                tensor.grad_of = tensor_id_map_tensor[tensor.grad_of]
-                tensor.grad_of._grad = tensor
 
             if "ctrl_deps" in tensor.extra_attr.keys():
                 ctrl_deps = list()
@@ -357,8 +344,7 @@ class Tensor:
     def __repr__(self):
         x1_id = self.x1.id if not self.x1 is None else "None"
         x2_id = self.x2.id if not self.x2 is None else "None"
-        grad_id = self._grad.id if not self._grad is None else "None"
-        return f"{self.id}: {x1_id}[{self.x1_shape}@{self.x1_hidden}] {x2_id}[{self.x2_shape}@{self.x2_hidden}] grad={grad_id}"
+        return f"{self.id}: {x1_id}[{self.x1_shape}@{self.x1_hidden}] {x2_id}[{self.x2_shape}@{self.x2_hidden}]"
 
     def __str__(self):
         return self.__repr__()

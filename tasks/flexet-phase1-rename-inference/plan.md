@@ -7,14 +7,14 @@
 
 ### AC-1: 目录与产品名重命名
 - Positive Tests：
-  - `stage/` 目录已重命名为 `flexet/`
-  - 项目中所有 `STAGE_` 前缀环境变量已改为 `FLEXET_`（`STAGE_OPTIMIZED` → `FLEXET_OPTIMIZED`，`STAGE_LEGACY_ATTR` → `FLEXET_LEGACY_ATTR`，`STAGE_MERGE_COMMS` → `FLEXET_MERGE_COMMS`，`STAGE_MICROBATCH_OPTIMIZE` → `FLEXET_MICROBATCH_OPTIMIZE`）
-  - `__STAGE_SYMBOL_REPLACE_*__` 占位符已改为 `__FLEXET_SYMBOL_REPLACE_*__`
-  - `_STAGE_ROOT` 等内部变量已改为 `_FLEXET_ROOT`
+  - `flexet/` 目录已重命名为 `flexet/`
+  - 项目中所有 `STAGE_` 前缀环境变量已改为 `FLEXET_`（`FLEXET_OPTIMIZED` → `FLEXET_OPTIMIZED`，`FLEXET_LEGACY_ATTR` → `FLEXET_LEGACY_ATTR`，`FLEXET_MERGE_COMMS` → `FLEXET_MERGE_COMMS`，`STAGE_MICROBATCH_OPTIMIZE` → `FLEXET_MICROBATCH_OPTIMIZE`）
+  - `__FLEXET_SYMBOL_REPLACE_*__` 占位符已改为 `__FLEXET_SYMBOL_REPLACE_*__`
+  - `_FLEXET_ROOT` 等内部变量已改为 `_FLEXET_ROOT`
   - JSON schema title 中的 "Stage" 已改为 "FlexET"
   - CLI 描述中的 "Stage" 已改为 "FlexET"
   - README、文档、任务目录名中的产品引用已改为 FlexET
-  - 代码中 `import stage.` 或 `from stage.` 路径已同步更新为 `flexet.`
+  - 代码中 `import flexet.` 或 `from flexet.` 路径已同步更新为 `flexet.`
 - Negative Tests：
   - Pipeline Parallel 术语保留，如 `_stage_for_layer()`、`pipeline_tensor_map`、`num_stacks_each_stage`、`stage_offset`、`pipeline_parallel.py` 中 layer/stage 相关命名未被修改
   - 无 `STAGE_` 前缀残留（pipeline stage 语义除外）
@@ -69,6 +69,6 @@
 - 保留的推理环境变量：`FLEXET_OPTIMIZED`、`FLEXET_MERGE_COMMS`、`FLEXET_LEGACY_ATTR`
 
 ## Path Boundaries
-- 可接受的实现范围：`stage/` 目录重命名、`main.py`、模型 builder、symbolic_tensor_graph 子模块、Sharding CSV、文档、配置文件的修改与清理
+- 可接受的实现范围：`flexet/` 目录重命名、`main.py`、模型 builder、symbolic_tensor_graph 子模块、Sharding CSV、文档、配置文件的修改与清理
 - 不可接受的方向：引入物理拓扑输入（Phase 2）、实现 Placement + Validation（Phase 3）、修改 collective 路由逻辑
 - 不得修改的文件：外层 `SCSP_v1/` 中 `astra-sim/`、`scsp/` 等非 stage 子目录的代码（除非 import 路径需要更新）
