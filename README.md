@@ -1,16 +1,25 @@
 
 ---
 
-# Symbolic Tensor Graph (STG) Generator
+# FlexET（Flexible Execution Trace Generator）
 
 ## Overview
 
-The Symbolic Tensor Graph is a generator for [Chakra Execution Trace (ET)](https://github.com/mlcommons/chakra) files. This tool is designed to generate synthetic workload traces for use in parallel strategy exploration without gathering data from a real system or implementing actual workload codes. It supports various parallelization strategies like Data Parallelism (DP), Tensor Parallelism (TP), Pipeline Parallelism (PP) and Sequence Parallelism (SP).
+FlexET（Flexible Execution Trace Generator，灵活执行轨迹生成器）是一款面向大规模分布式 AI 系统的执行轨迹生成工具，专注于为多种并行策略组合生成标准化的 Chakra 执行轨迹（Execution Trace）文件。该工具旨在无需实际部署工作负载或采集真实系统数据的前提下，生成可用于并行策略探索与性能分析的综合工作负载轨迹。
+
+FlexET 的核心设计理念在于将符号化的计算图表示与物理硬件拓扑相结合，实现从高层并行策略到底层执行轨迹的端到端映射。通过对数据并行、张量并行、流水线并行、序列并行等多种并行维度的灵活组合支持，FlexET 能够覆盖从标准 Transformer（LLaMA、GPT）到混合专家模型（MoE）、视觉语言模型（VLM）等多种主流架构的轨迹生成需求。
+
+相较于传统的纯逻辑执行轨迹生成方式，FlexET 引入了物理拓扑感知机制，能够在生成执行轨迹时充分考虑底层硬件的互联约束，确保生成的通信模式和数据流在实际硬件上具备可执行性。同时，内置的映射与验证引擎能够在策略配置与物理部署之间建立可靠的桥梁，自动生成并行角色到物理节点的映射方案，并验证流水线直连与通信组连通性的约束满足情况，在不可行时输出详细的可行性分析报告，辅助用户快速定位并调整配置。
 
 ### Key Features
-- Generate synthetic transformer workloads in Chakra ET format.
-- Supports multiple parallelism strategies (DP, TP, PP, SP).
-- Support customized model dimensions for Transformer Models (batch, seq, dmodel, dff, n_head)
+
+- 生成符合 Chakra 标准的合成 Transformer 工作负载执行轨迹。
+- 支持多种并行策略的灵活组合，包括数据并行、张量并行、流水线并行与序列并行。
+- 支持自定义 Transformer 模型的维度配置，涵盖批量大小、序列长度、隐藏维度、前馈维度与注意力头数等核心参数。
+- **物理拓扑感知**：支持加载自定义硬件互联拓扑，在拓扑约束下进行映射验证，确保生成的执行轨迹在实际硬件上具备可执行性。
+- **智能映射与验证**：内置映射与验证引擎，自动生成并行角色到物理节点的映射方案，验证流水线直连与通信组连通性约束，失败时输出可行性分析报告。
+- **物理节点统一输出**：生成的执行轨迹文件与通信组配置直接使用物理节点编号，无需二次映射即可对接底层硬件仿真或实际部署环境。
+- **多模型架构覆盖**：支持 Dense（LLaMA）、GPT、MoE、VLM、VLM-MoE 等多种主流模型架构，覆盖训练与推理双模式场景。
 
 ## Installation
 

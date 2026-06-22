@@ -24,3 +24,7 @@ results/.cache/
 # Hermes plans
 .hermes/
 scsp_astra_bridge/
+
+# PBR task directories and test outputs
+tasks/
+test_output_*/
