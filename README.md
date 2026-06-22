@@ -117,7 +117,7 @@ comm_group.json  workload.0.et  workload.1.et  workload.2.et  workload.3.et
   ```
 
 ## Tool workflow
-Here is a breif workflow about how stg generate traces step by step.
+Here is a brief workflow about how FlexET generates traces step by step.
 ![alt text](./docs/images/stg_workflow.png)
 
 ## Chakra Schema Version
