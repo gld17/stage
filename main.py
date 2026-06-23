@@ -1,26 +1,26 @@
-import os
 import argparse
 import json
-import sys
-import sympy as sp
-from symbolic_tensor_graph.graph.graph import TensorGraph
-from symbolic_tensor_graph.graph.replicate_graph import ReplicateGraph
-from symbolic_tensor_graph.graph.connect_graph import ConnectGraph
-from symbolic_tensor_graph.graph.graph_distributer import GraphDistributer
-from symbolic_tensor_graph.graph.convert_chakra import BundledConvertChakra
+import os
 import re
-from symbolic_tensor_graph.topology import PhysicalTopology, validate_physical_topology
-from symbolic_tensor_graph.placement import (
-    PlacementEngine,
-    ValidationEngine,
-    write_placement_json,
-    write_feasibility_report,
-    readable_rank_to_role,
-    generate_readable_ranks,
-)
-from symbolic_tensor_graph.vram_counting import _print_gpu_vram
+import sys
 
-mixprecision = False
+import sympy as sp
+
+from symbolic_tensor_graph.graph.connect_graph import ConnectGraph
+from symbolic_tensor_graph.graph.convert_chakra import BundledConvertChakra
+from symbolic_tensor_graph.graph.graph import TensorGraph
+from symbolic_tensor_graph.graph.graph_distributer import GraphDistributer
+from symbolic_tensor_graph.graph.replicate_graph import ReplicateGraph
+from symbolic_tensor_graph.placement import (
+    generate_readable_ranks,
+    PlacementEngine,
+    readable_rank_to_role,
+    ValidationEngine,
+    write_feasibility_report,
+    write_placement_json,
+)
+from symbolic_tensor_graph.topology import PhysicalTopology, validate_physical_topology
+from symbolic_tensor_graph.vram_counting import _print_gpu_vram
 
 
 def str_to_bool(v):
@@ -93,7 +93,7 @@ def _find_and_apply_placement(
     return readable_rank_to_physical_id
 
 
-def _create_pipeline_tensor_map_mix_precision(
+def build_mixed_precision_stage_map(
     _tensors, _temporal_parallel_dims, _symbol_map_value, num_stacks
 ):
     _tensor_map = dict()
@@ -114,9 +114,7 @@ def _create_pipeline_tensor_map_mix_precision(
 
     for tensor in _tensors:
         tid = tensor.id
-        # ------------------------------------------------------------------
-        # 1) Transformer block tensors
-        # ------------------------------------------------------------------
+        # Transformer block tensors.
         m = re.search(r"transformer\.(\d+)", tid)
         if m:
             block_idx = int(m.group(1))
@@ -125,9 +123,7 @@ def _create_pipeline_tensor_map_mix_precision(
             _tensor_map[tid] = {parallel_dim: stage}
             continue
 
-        # ------------------------------------------------------------------
-        # 2) Special tensors (embeddings, loss etc.)
-        # ------------------------------------------------------------------
+        # Special tensors: embeddings, vision components, and loss.
         if "in_emb" in tid:
             _tensor_map[tid] = {parallel_dim: 0}
         elif "vision_encoder" in tid or "vision_projection" in tid or "vlm_concat" in tid:
@@ -135,18 +131,21 @@ def _create_pipeline_tensor_map_mix_precision(
         elif "out_emb" in tid or "loss" in tid:
             _tensor_map[tid] = {parallel_dim: (range_ - 1)}
         else:
-            # Any tensor that doesn't match the above categories should be
-            # impossible – raise explicit error to catch new patterns early.
+            # Raise explicitly to catch new tensor id patterns early.
             raise ValueError(f"Unrecognized tensor id for pipeline mapping: {tid}")
 
     return _tensor_map
 
 
-def _create_pipeline_tensor_map(
-    _tensors, _temporal_parallel_dims, _symbol_map_value, num_stacks
+def build_standard_stage_map(
+    _tensors,
+    _temporal_parallel_dims,
+    _symbol_map_value,
+    num_stacks,
+    use_mixed_precision: bool = False,
 ):
-    if mixprecision:
-        return _create_pipeline_tensor_map_mix_precision(
+    if use_mixed_precision:
+        return build_mixed_precision_stage_map(
             _tensors, _temporal_parallel_dims, _symbol_map_value, num_stacks
         )
     _tensor_map = dict()
@@ -165,8 +164,6 @@ def _create_pipeline_tensor_map(
     # num_stacks_each_stage.append(num_stacks_each_stage[-1]+100000)
 
     for tensor in _tensors:
-        if tensor.id == "transformer.18._sharded_weight@1":
-            pass
         found = False
         for num_stack in range(num_stacks):
             if f"transformer.{num_stack}." in tensor.id:
@@ -178,7 +175,7 @@ def _create_pipeline_tensor_map(
                 if found:
                     break
         if found:
-            pass
+            continue
         elif "in_emb" in tensor.id:
             _tensor_map[tensor.id] = {parallel_dim: 0}
         elif (
@@ -196,7 +193,7 @@ def _create_pipeline_tensor_map(
     return _tensor_map
 
 
-def _stage_for_layer(layer_idx, num_layers, num_stages, stage_offset=0):
+def compute_pipeline_stage_for_layer(layer_idx, num_layers, num_stages, stage_offset=0):
     layers_each_stage = [num_layers // num_stages] * num_stages
     for i in range(num_layers % num_stages):
         layers_each_stage[i] += 1
@@ -208,7 +205,7 @@ def _stage_for_layer(layer_idx, num_layers, num_stages, stage_offset=0):
     return stage_offset + num_stages - 1
 
 
-def _create_vlm_pipeline_tensor_map(
+def build_vlm_stage_map(
     _tensors,
     _temporal_parallel_dims,
     _symbol_map_value,
@@ -227,7 +224,7 @@ def _create_vlm_pipeline_tensor_map(
         tid = tensor.id
         m = re.search(r"vision_encoder\.vit\.(\d+)", tid)
         if m:
-            stage = _stage_for_layer(
+            stage = compute_pipeline_stage_for_layer(
                 int(m.group(1)), vision_num_layers, vision_pp, stage_offset=0
             )
             _tensor_map[tid] = {parallel_dim: stage}
@@ -235,7 +232,7 @@ def _create_vlm_pipeline_tensor_map(
 
         m = re.search(r"transformer\.(\d+)", tid)
         if m:
-            stage = _stage_for_layer(
+            stage = compute_pipeline_stage_for_layer(
                 int(m.group(1)),
                 text_num_layers,
                 text_pp,
@@ -503,12 +500,8 @@ def main():
     symbol_map_value[fsdp] = 1
     symbol_map_value["fsdp"] = 1
 
-    global mixprecision
-    if args.mixed_precision:
-        mixprecision = True
-
     if args.model_type == "llama" or args.model_type == "dense":
-        if mixprecision:
+        if args.mixed_precision:
             from models.llama_model import llama as transformer_dense_fn
         else:
             from models.gpt_model import gpt as transformer_dense_fn
@@ -611,11 +604,12 @@ def main():
         spatial_parallel_dims_moe = [dp, tp, spp, ep]
 
         # moe model
-        pipeline_tensor_map = _create_pipeline_tensor_map(
+        pipeline_tensor_map = build_standard_stage_map(
             transformer_moe.tensors,
             temporal_parallel_dims,
             symbol_map_value,
             num_stacks,
+            use_mixed_precision=args.mixed_precision,
         )
 
         print("MoE model: Distributing")
@@ -743,7 +737,7 @@ def _build_and_distribute_vlm_model(
     temporal_parallel_dims = [pp]
     total_pp = max(1, int(args.vision_pp)) + max(1, int(args.text_pp))
     symbol_map_value[pp] = total_pp
-    pipeline_tensor_map = _create_vlm_pipeline_tensor_map(
+    pipeline_tensor_map = build_vlm_stage_map(
         full_graph.tensors,
         temporal_parallel_dims,
         symbol_map_value,
@@ -831,11 +825,12 @@ def _build_and_distribute_dense_model(
     spatial_parallel_dims_dense = [dp, tp, spp]
 
     symbol_map_value[tp] *= symbol_map_value[ep]
-    pipeline_tensor_map = _create_pipeline_tensor_map(
+    pipeline_tensor_map = build_standard_stage_map(
         transformer_dense.tensors,
         temporal_parallel_dims,
         symbol_map_value,
         num_stacks,
+        use_mixed_precision=args.mixed_precision,
     )
 
     print("Dense model: Distributing")
